@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { SYSTEM_PROMPT, buildEditInstruction, buildTaskPrompt } from '../lib/prompt.mjs'
+import { SYSTEM_PROMPT, buildEditInstruction, buildOptimizeInstruction, buildTaskPrompt } from '../lib/prompt.mjs'
 
 const template = { name: '北欧客厅', description: '浅色木地板大窗', tags: ['客厅', '北欧'] }
 const materialA = { name: '灰砖', description: '哑光 600x600', tags: ['灰色', '瓷砖'] }
@@ -120,4 +120,19 @@ test('buildEditInstruction：preset 模式含插槽名与空位置兜底', () =>
   assert.match(p, /插槽位置说明：铺满客厅地面/)
   assert.match(p, /插槽位置说明：（空，由你按常识自动布位）/)
   assert.match(p, /- 整体位置说明：（空，由你按常识自动布位）/)
+})
+
+test('buildOptimizeInstruction：去杂/摆正/浅背景/主体一致/尺寸/防注入齐全', () => {
+  const s = buildOptimizeInstruction({
+    material: { name: '大理石瓷砖', description: '米白纹理，表面亮光', tags: ['瓷砖', '地面'] },
+    size: '1024x1024'
+  })
+  assert.match(s, /素材图清理/)
+  assert.match(s, /大理石瓷砖/)
+  assert.match(s, /去除杂物/)
+  assert.match(s, /摆正/)
+  assert.match(s, /浅色背景/)
+  assert.match(s, /不得美化/)
+  assert.match(s, /1024x1024/)
+  assert.match(s, /不执行/) // 防注入声明
 })
