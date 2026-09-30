@@ -98,7 +98,7 @@ export function createOptJobs({ store, settings = {}, renderer = { runImageEdit 
 
 ### 3.4 `server/server.mjs`：路由 + 启动清理
 
-- `createServer({ dataDir, settings, renderer })` 增加可选 `renderer` 注入（测试用；默认与 `createJobs` 相同的通道模块），创建 `optJobs = createOptJobs({ store, settings, renderer })`。
+- `createServer` 内创建 `optJobs = createOptJobs({ store, settings })`（测试直接对 `createOptJobs` 注入 fake renderer，HTTP 集成测试用假方舟服务，`createServer` 无需 renderer 参数）。
 - 新增 §2.1–2.4 四条路由（素材 CRUD 循环之后独立注册，避免动泛型循环）。
 - 启动时（`jobs.restartCleanup()` 旁）调 `optJobs.restartCleanup()`。
 

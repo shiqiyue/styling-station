@@ -17,6 +17,7 @@ import { createStore, nowIso } from './lib/store.mjs'
 import { parseMultipart, validateImage } from './lib/upload.mjs'
 import { rankMaterials } from './lib/matcher.mjs'
 import { createJobs } from './lib/jobs.mjs'
+import { createOptJobs } from './lib/opt-jobs.mjs'
 import { sendSse, startHeartbeat } from './lib/sse.mjs'
 import { pickRenderSize } from './lib/images.mjs'
 
@@ -77,6 +78,8 @@ export function createServer({ dataDir, settings } = {}) {
   const store = createStore({ dataDir })
   const jobs = createJobs({ store, settings, cli })
   jobs.restartCleanup() // 服务重启：把残留 queued/running 记录标记 stopped
+  const optJobs = createOptJobs({ store, settings })
+  optJobs.restartCleanup() // 服务重启：清掉素材目录里的优化临时产物（opt-*）
   const routes = []
   const route = (method, pattern, handler) => routes.push({ method, pattern, handler })
 
@@ -146,6 +149,48 @@ export function createServer({ dataDir, settings } = {}) {
       json(res, 200, updated)
     })
   }
+
+  // ---------- 路由：素材图优化（Spec: material-image-optimize-design §2） ----------
+  const OPT_TERMINAL = new Set(['done', 'error', 'cancelled'])
+
+  route('POST', '/api/materials/:id/optimize', async (req, res, params) => {
+    const body = await readJsonBody(req)
+    json(res, 200, { taskId: optJobs.submit({ materialId: params.id, index: body.index }) })
+  })
+
+  route('GET', '/api/materials/:id/optimize/:taskId/stream', (req, res, params) => {
+    const view = optJobs.get(params.taskId)
+    if (!view || view.materialId !== params.id) {
+      throw new HttpError(404, 'OPT_NOT_FOUND', '优化任务不存在（服务可能已重启），请重新发起')
+    }
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store',
+      Connection: 'keep-alive'
+    })
+    const hb = startHeartbeat(res)
+    const unsub = optJobs.subscribe(params.taskId, ({ event, data }) => sendSse(res, event, data))
+    if (OPT_TERMINAL.has(view.status)) {
+      // 终态任务连接即补发收尾（前端可能错过 done）
+      if (view.status === 'done' && view.result) sendSse(res, 'result', view.result)
+      sendSse(res, 'status', { status: view.status, queuePosition: 0 })
+      if (view.status === 'error') sendSse(res, 'error', { message: view.error || '优化失败' })
+      sendSse(res, 'done', { status: view.status })
+    }
+    req.on('close', () => {
+      clearInterval(hb)
+      unsub()
+    })
+  })
+
+  route('POST', '/api/materials/:id/optimize/:taskId/adopt', (req, res, params) => {
+    const { doc } = optJobs.adopt({ materialId: params.id, taskId: params.taskId })
+    json(res, 200, doc)
+  })
+
+  route('POST', '/api/materials/:id/optimize/:taskId/discard', (req, res, params) => {
+    json(res, 200, optJobs.discard({ materialId: params.id, taskId: params.taskId }))
+  })
 
   // ---------- 路由：预设（契约 §5.3） ----------
   route('GET', '/api/presets', (req, res, params, url) => {
