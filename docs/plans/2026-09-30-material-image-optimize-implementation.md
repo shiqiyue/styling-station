@@ -245,6 +245,8 @@ function okRenderer(calls = []) {
       const out = join(args.workDir, 'ark_images')
       mkdirSync(out, { recursive: true })
       writeFileSync(join(out, 'ark-1.png'), pngBuf(8, 8))
+      // 模拟真实通道：delta 在订阅建立之后异步到达
+      await new Promise((r) => setTimeout(r, 5))
       args.onEvent?.({ event: 'delta', data: { channel: 'system', text: '图生图通道：方舟 seedream-test' } })
       return {
         ok: true, images: [join(out, 'ark-1.png')], sessionId: null, elapsedMs: 12,
