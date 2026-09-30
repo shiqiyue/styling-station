@@ -5,13 +5,16 @@
 
 import http from 'node:http'
 import { readFile } from 'node:fs/promises'
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, normalize, extname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { networkInterfaces } from 'node:os'
 
 import { loadSettings } from './settings.mjs'
-import { json, sendError, HttpError } from './lib/http.mjs'
+import { json, sendError, HttpError, readJsonBody } from './lib/http.mjs'
 import { resolveQoderCliSpawn } from './lib/qodercli.mjs'
+import { createStore } from './lib/store.mjs'
+import { parseMultipart, validateImage } from './lib/upload.mjs'
 
 export const VERSION = '0.1.0'
 const WEB_DIR = fileURLToPath(new URL('../web/', import.meta.url))
@@ -56,6 +59,7 @@ function matchPattern(pattern, pathname) {
 export function createServer({ dataDir, settings } = {}) {
   settings = settings || loadSettings(dataDir)
   const cli = resolveQoderCliSpawn({ qodercliPath: settings.qodercliPath })
+  const store = createStore({ dataDir })
   const routes = []
   const route = (method, pattern, handler) => routes.push({ method, pattern, handler })
 
@@ -72,8 +76,61 @@ export function createServer({ dataDir, settings } = {}) {
     })
   })
 
+  route('GET', '/api/scenes', (req, res) => {
+    json(res, 200, {
+      scenes: store.scenes(),
+      tags: { materials: store.tags('materials'), templates: store.tags('templates') }
+    })
+  })
+
+  // ---------- 路由：素材 / 样板（契约 §5.2） ----------
+  const parseListQuery = (url) => ({
+    scene: url.searchParams.get('scene') || undefined,
+    tags: (url.searchParams.get('tags') || '').split(',').map((s) => s.trim()).filter(Boolean),
+    q: url.searchParams.get('q') || undefined,
+    includeDeleted: ['1', 'true'].includes(url.searchParams.get('includeDeleted')),
+    limit: url.searchParams.get('limit') ?? undefined,
+    offset: url.searchParams.get('offset') ?? 0
+  })
+
+  for (const kind of ['materials', 'templates']) {
+    route('GET', `/api/${kind}`, (req, res, params, url) => json(res, 200, store.list(kind, parseListQuery(url))))
+    route('POST', `/api/${kind}`, async (req, res) => json(res, 200, store.create(kind, await readJsonBody(req))))
+    route('GET', `/api/${kind}/:id`, (req, res, params) => json(res, 200, store.get(kind, params.id)))
+    route('PUT', `/api/${kind}/:id`, async (req, res, params) =>
+      json(res, 200, store.update(kind, params.id, await readJsonBody(req)))
+    )
+    route('DELETE', `/api/${kind}/:id`, (req, res, params) => json(res, 200, store.remove(kind, params.id)))
+    route('POST', `/api/${kind}/:id/undelete`, (req, res, params) => json(res, 200, store.undelete(kind, params.id)))
+
+    route('POST', `/api/${kind}/:id/images`, async (req, res, params) => {
+      store.get(kind, params.id) // 存在性检查
+      const maxUpload = settings.maxUploadMB * 1024 * 1024
+      const { data } = await parseMultipart(req, { maxBytes: maxUpload + 2 * 1024 * 1024, field: 'file' })
+      const dim = validateImage(data, { maxBytes: maxUpload })
+      const ext = dim.type === 'jpeg' ? 'jpg' : dim.type
+      const dir = join(dataDir, 'files', kind, params.id)
+      mkdirSync(dir, { recursive: true })
+      const used = new Set(readdirSync(dir).map((f) => Number(f.split('.')[0])).filter((n) => Number.isInteger(n)))
+      let n = 1
+      while (used.has(n)) n++
+      const name = `${n}.${ext}`
+      writeFileSync(join(dir, name), data)
+      store.addImage(kind, params.id, { file: `files/${kind}/${params.id}/${name}`, width: dim.width, height: dim.height })
+      json(res, 200, store.get(kind, params.id))
+    })
+
+    route('DELETE', `/api/${kind}/:id/images/:index`, (req, res, params) => {
+      const doc = store.get(kind, params.id)
+      const img = doc.images[Number(params.index)]
+      if (!img) throw new HttpError(400, 'IMAGE_NOT_FOUND', '要删除的图片不存在')
+      const updated = store.removeImage(kind, params.id, params.index)
+      rmSync(join(dataDir, img.file), { force: true })
+      json(res, 200, updated)
+    })
+  }
+
   // 由后续任务在 createServer 内继续注册路由：
-  //   Task 5：/api/materials、/api/templates、/api/scenes
   //   Task 6：/api/presets
   //   Task 7：/api/renders/auto-recommend、/api/presets/:id/auto-fill
   //   Task 10：/api/renders（含 SSE / stop / rerun / chosen）
