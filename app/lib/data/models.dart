@@ -38,6 +38,20 @@ class Paged<T> {
   }
 }
 
+/// 素材库 / 样板库（同构视图的两端）。
+enum LibraryKind {
+  materials('materials', '素材'),
+  templates('templates', '样板');
+
+  const LibraryKind(this.kind, this.noun);
+
+  /// API 路径段（materials / templates）。
+  final String kind;
+
+  /// 中文名词（“素材/样板”），用于文案拼接。
+  final String noun;
+}
+
 // ---------- 图片 ----------
 
 /// 素材/样板图片条目。
