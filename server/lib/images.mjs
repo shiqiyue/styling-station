@@ -72,9 +72,10 @@ function jpegSize(buf) {
 }
 
 function webpSize(buf) {
-  if (buf.length < 30) return null
+  if (buf.length < 25) return null
   const fourcc = buf.subarray(12, 16).toString('latin1')
   if (fourcc === 'VP8X') {
+    if (buf.length < 30) return null
     const width = 1 + buf.readUIntLE(24, 3)
     const height = 1 + buf.readUIntLE(27, 3)
     return width && height ? { type: 'webp', width, height } : null
@@ -87,6 +88,7 @@ function webpSize(buf) {
     return { type: 'webp', width, height }
   }
   if (fourcc === 'VP8 ') {
+    if (buf.length < 30) return null
     // 帧头：3 字节 frame tag + 起始码 9d 01 2a + 宽(14bit) + 高(14bit)
     if (!(buf[23] === 0x9d && buf[24] === 0x01 && buf[25] === 0x2a)) return null
     const width = buf.readUInt16LE(26) & 0x3fff
