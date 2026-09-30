@@ -13,9 +13,12 @@ import { networkInterfaces } from 'node:os'
 import { loadSettings } from './settings.mjs'
 import { json, sendError, HttpError, readJsonBody } from './lib/http.mjs'
 import { resolveQoderCliSpawn } from './lib/qodercli.mjs'
-import { createStore } from './lib/store.mjs'
+import { createStore, nowIso } from './lib/store.mjs'
 import { parseMultipart, validateImage } from './lib/upload.mjs'
 import { rankMaterials } from './lib/matcher.mjs'
+import { createJobs } from './lib/jobs.mjs'
+import { sendSse, startHeartbeat } from './lib/sse.mjs'
+import { pickRenderSize } from './lib/images.mjs'
 
 export const VERSION = '0.1.0'
 const WEB_DIR = fileURLToPath(new URL('../web/', import.meta.url))
@@ -61,6 +64,8 @@ export function createServer({ dataDir, settings } = {}) {
   settings = settings || loadSettings(dataDir)
   const cli = resolveQoderCliSpawn({ qodercliPath: settings.qodercliPath })
   const store = createStore({ dataDir })
+  const jobs = createJobs({ store, settings, cli })
+  jobs.restartCleanup() // 服务重启：把残留 queued/running 记录标记 stopped
   const routes = []
   const route = (method, pattern, handler) => routes.push({ method, pattern, handler })
 
@@ -176,10 +181,243 @@ export function createServer({ dataDir, settings } = {}) {
     json(res, 200, { slots })
   })
 
-  // 由后续任务在 createServer 内继续注册路由：
-  //   Task 10：/api/renders（含 SSE / stop / rerun / chosen）
+  // ---------- 路由：搭配与出图（契约 §5.4） ----------
+  const CANDIDATE_COUNTS = [1, 2, 4]
+  const TERMINAL_STATUS = new Set(['done', 'error', 'stopped'])
+
+  function requireImage(doc, label) {
+    const img = doc.images?.[0]
+    if (!img) throw new HttpError(400, 'NO_IMAGE', `${label}「${doc.name}」还没有图片，请先上传`)
+    return img
+  }
+
+  function snapshotTemplate(t) {
+    return {
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      tags: [...t.tags],
+      images: t.images.map((i) => ({ ...i }))
+    }
+  }
+
+  function snapshotMaterial(m, slot = {}) {
+    return {
+      id: m.id,
+      name: m.name,
+      description: m.description,
+      tags: [...m.tags],
+      images: m.images.map((i) => ({ ...i })),
+      slotId: slot.slotId ?? null,
+      slotName: slot.slotName ?? null,
+      slotPosition: slot.slotPosition ?? null
+    }
+  }
+
+  /** 组装一条 queued 出图记录（free/preset 共用；rerun 复用同一校验） */
+  function assembleRender(body, parentId = null) {
+    const mode = body.mode
+    if (mode !== 'free' && mode !== 'preset') throw new HttpError(400, 'INVALID_MODE', 'mode 必须为 free 或 preset')
+    const candidateCount = Number(body.candidateCount)
+    if (!CANDIDATE_COUNTS.includes(candidateCount)) {
+      throw new HttpError(400, 'BAD_CANDIDATE_COUNT', '候选张数只能为 1、2 或 4')
+    }
+    const positionNote = String(body.positionNote ?? '').trim()
+    if (positionNote.length > 1000) throw new HttpError(400, 'POSITION_NOTE_TOO_LONG', '位置说明过长（最多 1000 字符）')
+
+    const common = {
+      mode,
+      status: 'queued',
+      parentId,
+      positionNote,
+      candidateCount,
+      results: [],
+      cliSessionId: null,
+      startedAt: null,
+      finishedAt: null,
+      elapsedMs: null,
+      stderrTail: null
+    }
+
+    if (mode === 'free') {
+      const t = store.get('templates', body.templateId)
+      if (t.deleted) throw new HttpError(400, 'INVALID_TEMPLATE', '样板不存在或已删除')
+      const primary = requireImage(t, '样板')
+      const ids = Array.isArray(body.materialIds) ? body.materialIds : []
+      if (!ids.length) throw new HttpError(400, 'NO_MATERIALS', '请至少选择一个素材')
+      if (ids.length > 8) throw new HttpError(400, 'TOO_MANY_MATERIALS', '一次最多搭配 8 个素材')
+      const materials = ids.map((id) => {
+        const m = store.get('materials', id)
+        if (m.deleted) throw new HttpError(400, 'INVALID_MATERIAL', `素材不存在或已删除：${id}`)
+        requireImage(m, '素材')
+        return snapshotMaterial(m)
+      })
+      return store.createRender({
+        ...common,
+        templateSnapshot: snapshotTemplate(t),
+        presetId: null,
+        presetSnapshot: null,
+        materialsSnapshot: materials,
+        size: pickRenderSize(primary.width, primary.height)
+      })
+    }
+
+    // preset 模式
+    const p = store.getPreset(body.presetId)
+    if (p.deleted) throw new HttpError(400, 'INVALID_PRESET', '预设不存在或已删除')
+    if (!p.templateValid) throw new HttpError(400, 'INVALID_TEMPLATE', '预设对应的样板已失效，请先修复样板')
+    const t = store.get('templates', p.templateId)
+    const primary = requireImage(t, '样板')
+    const assignments = Array.isArray(body.assignments) ? body.assignments : []
+    const bySlot = new Map()
+    for (const a of assignments) {
+      if (!a || typeof a.slotId !== 'string') continue
+      if (bySlot.has(a.slotId)) throw new HttpError(400, 'SLOT_DUPLICATE', '同一个插槽重复填了素材')
+      bySlot.set(a.slotId, a.materialId)
+    }
+    const slotIds = new Set(p.slots.map((s) => s.id))
+    for (const a of assignments) {
+      if (a && a.slotId && !slotIds.has(a.slotId)) {
+        throw new HttpError(400, 'SLOT_UNKNOWN', `预设里没有这个插槽：${a.slotId}`)
+      }
+    }
+    const materials = p.slots.map((slot) => {
+      const mid = bySlot.get(slot.id)
+      if (!mid) throw new HttpError(400, 'SLOT_MISSING_MATERIAL', `插槽「${slot.name}」未选择素材`)
+      const m = store.get('materials', mid)
+      if (m.deleted) throw new HttpError(400, 'INVALID_MATERIAL', `素材不存在或已删除：${mid}`)
+      requireImage(m, '素材')
+      return snapshotMaterial(m, { slotId: slot.id, slotName: slot.name, slotPosition: slot.positionNote || null })
+    })
+    return store.createRender({
+      ...common,
+      templateSnapshot: snapshotTemplate(t),
+      presetId: p.id,
+      presetSnapshot: { id: p.id, name: p.name },
+      materialsSnapshot: materials,
+      size: pickRenderSize(primary.width, primary.height)
+    })
+  }
+
+  route('POST', '/api/renders', async (req, res) => {
+    const doc = assembleRender(await readJsonBody(req))
+    jobs.submit(doc)
+    json(res, 200, { renderId: doc.id })
+  })
+
+  route('GET', '/api/renders', (req, res, params, url) => {
+    json(
+      res,
+      200,
+      store.listRenders({
+        templateId: url.searchParams.get('templateId') || undefined,
+        materialId: url.searchParams.get('materialId') || undefined,
+        limit: url.searchParams.get('limit') ?? undefined,
+        offset: url.searchParams.get('offset') ?? 0
+      })
+    )
+  })
+
+  route('GET', '/api/renders/:id/stream', (req, res, params) => {
+    const rec = store.getRender(params.id)
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store',
+      Connection: 'keep-alive'
+    })
+    const hb = startHeartbeat(res)
+    const j = jobs.get(params.id)
+
+    if (!j) {
+      // 重启后无内存任务：纯回放记录终态
+      sendSse(res, 'snapshot', { renderId: rec.id, status: rec.status, queuePosition: 0, blocks: [] })
+      ;(rec.results || []).forEach((r, i) =>
+        sendSse(res, 'result', { index: i + 1, file: r.file, width: r.width, height: r.height })
+      )
+      if (rec.status === 'error') sendSse(res, 'error', { message: rec.stderrTail || '出图失败' })
+      sendSse(res, 'done', { status: rec.status })
+      clearInterval(hb)
+      res.end()
+      return
+    }
+
+    const unsub = jobs.subscribe(params.id, ({ event, data }) => sendSse(res, event, data))
+    // 已产出候选补发（晚连/重连；前端按 index 去重）
+    const now = store.getRender(params.id)
+    ;(now.results || []).forEach((r, i) =>
+      sendSse(res, 'result', { index: i + 1, file: r.file, width: r.width, height: r.height })
+    )
+    // 终态任务补发收尾事件（避免连接过晚错过 done）
+    if (TERMINAL_STATUS.has(j.status)) {
+      sendSse(res, 'status', { status: j.status, queuePosition: 0 })
+      if (j.status === 'error') sendSse(res, 'error', { message: now.stderrTail || '出图失败' })
+      sendSse(res, 'done', { status: j.status })
+    }
+    req.on('close', () => {
+      clearInterval(hb)
+      unsub()
+    })
+  })
+
+  route('POST', '/api/renders/:id/stop', (req, res, params) => {
+    const rec = store.getRender(params.id)
+    const r = jobs.stop(params.id)
+    if (!r && !TERMINAL_STATUS.has(rec.status)) {
+      // 重启后残留（无内存任务）：直接标记停止
+      store.updateRender(params.id, { status: 'stopped', finishedAt: nowIso(), stderrTail: '已停止' })
+      json(res, 200, { status: 'stopped' })
+      return
+    }
+    json(res, 200, { status: r || rec.status })
+  })
+
+  route('POST', '/api/renders/:id/rerun', async (req, res, params) => {
+    const body = await readJsonBody(req)
+    const old = store.getRender(params.id)
+    const next = {
+      mode: old.mode,
+      positionNote: body.positionNote ?? old.positionNote ?? '',
+      candidateCount: body.candidateCount ?? old.candidateCount ?? 1
+    }
+    if (old.mode === 'free') {
+      next.templateId = old.templateSnapshot?.id
+      next.materialIds = Array.isArray(body.materialIds)
+        ? body.materialIds
+        : (old.materialsSnapshot || []).map((m) => m.id)
+    } else {
+      next.presetId = old.presetId
+      next.assignments = Array.isArray(body.assignments)
+        ? body.assignments
+        : (old.materialsSnapshot || []).filter((m) => m.slotId).map((m) => ({ slotId: m.slotId, materialId: m.id }))
+    }
+    const doc = assembleRender(next, old.id)
+    jobs.submit(doc)
+    json(res, 200, { renderId: doc.id, parentId: old.id })
+  })
+
+  route('POST', '/api/renders/:id/results/:index/chosen', async (req, res, params) => {
+    const body = await readJsonBody(req)
+    const rec = store.getRender(params.id)
+    const idx = Number(params.index)
+    const results = rec.results || []
+    if (!Number.isInteger(idx) || idx < 1 || idx > results.length) {
+      throw new HttpError(400, 'RESULT_NOT_FOUND', '候选图不存在')
+    }
+    const chosen = body.chosen !== false
+    const updated = results.map((r, i) => {
+      if (chosen) return { ...r, chosen: i === idx - 1 }
+      return i === idx - 1 ? { ...r, chosen: false } : { ...r }
+    })
+    json(res, 200, store.updateRender(params.id, { results: updated }))
+  })
+
+  route('GET', '/api/renders/:id', (req, res, params) => {
+    const rec = store.getRender(params.id)
+    json(res, 200, { ...rec, childrenIds: store.renderChildren(rec.id).map((c) => c.id) })
+  })
+
   function queueStats() {
-    return { running: 0, pending: 0 }
+    return jobs.stats()
   }
 
   // ---------- 静态与文件 ----------
