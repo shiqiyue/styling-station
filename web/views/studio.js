@@ -16,6 +16,10 @@ const MODES = [
   ['preset', '预设搭配']
 ]
 
+/** 保真度预期说明（ImageGen 为文生图，素材靠 AI 观察描述还原，非像素级合成） */
+const FIDELITY_HINT =
+  'AI 概念效果图：素材外观尽量贴近原图但不保证完全一致（形状细节可能轻微漂移）；素材描述写具体、多出几版挑选可提高相似度。'
+
 const state = {
   mode: 'free',
   free: {
@@ -518,7 +522,7 @@ export const studioView = {
 
       function openUpload() {
         const name = el('input', { maxlength: 50, placeholder: '例如：胡桃木摆件' })
-        const desc = el('textarea', { rows: 2, maxlength: 500, placeholder: '材质、风格…' })
+        const desc = el('textarea', { rows: 2, maxlength: 500, placeholder: '形状/颜色/材质等外观特征（写具体，出图越像）' })
         const sceneInput = el('input', { list: 'studio-scene-list', placeholder: '选择或输入场景' })
         const dl = el('datalist', { id: 'studio-scene-list' })
         getScenes().then((s) => {
@@ -666,7 +670,8 @@ export const studioView = {
           sideBox,
           field('位置说明', note, { hint: '说明素材应放在样板哪个位置；留空由 AI 自动布局' }),
           field('候选张数', countPicker(() => f.candidateCount, (n) => (f.candidateCount = n)), { hint: '多张候选便于挑选，耗时更长' }),
-          el('button', { class: 'primary', onclick: submitFree }, '生成效果图')
+          el('button', { class: 'primary', onclick: submitFree }, '生成效果图'),
+          el('div', { class: 'muted' }, FIDELITY_HINT)
         ])
       )
 
@@ -788,7 +793,8 @@ export const studioView = {
             el('h3', {}, '③ 出图设置'),
             field('补充说明', note, { hint: '在预设插槽位置说明之外的整体说明；留空由 AI 布局' }),
             field('候选张数', countPicker(() => p.candidateCount, (n) => (p.candidateCount = n))),
-            el('button', { class: 'primary', onclick: submitPreset }, '生成效果图')
+            el('button', { class: 'primary', onclick: submitPreset }, '生成效果图'),
+            el('div', { class: 'muted' }, FIDELITY_HINT)
           ])
         )
       }

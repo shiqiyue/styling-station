@@ -64,3 +64,22 @@ test('SYSTEM_PROMPT 固定文案逐字包含关键约束', () => {
   assert.match(SYSTEM_PROMPT, /只输出每张图片的绝对路径（每行一个），不要寒暄/)
   assert.match(SYSTEM_PROMPT, /1\. 你的唯一任务：把样板、素材、位置说明整理成一段高质量图像生成提示词/)
 })
+
+test('SYSTEM_PROMPT 含素材外观忠实度约束（观察先行 / 禁类目词 / 以图为准）', () => {
+  assert.match(SYSTEM_PROMPT, /写提示词前先仔细观察每张素材图/)
+  assert.match(SYSTEM_PROMPT, /不用笼统类目词/)
+  assert.match(SYSTEM_PROMPT, /以素材图为准/)
+  assert.match(SYSTEM_PROMPT, /不虚构、不遗漏显著特征/)
+})
+
+test('输出要求含「素材外观以素材图为唯一基准」约束', () => {
+  const p = buildTaskPrompt({
+    mode: 'free',
+    template,
+    entries: [{ material: materialA }],
+    positionNote: '灰砖铺在客厅地面',
+    size: '1024x1024',
+    candidateCount: 1
+  })
+  assert.match(p, /素材外观以素材图为唯一基准：先核对轮廓\/比例\/颜色\/材质\/细节再写提示词/)
+})

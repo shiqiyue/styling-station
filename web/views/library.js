@@ -186,7 +186,7 @@ export function createLibraryView(kind) {
     function openEditor(item) {
       const isNew = !item
       const name = el('input', { value: item?.name || '', maxlength: 50, placeholder: label === '素材' ? '例如：胡桃木摆件' : '例如：奶油风卧室' })
-      const desc = el('textarea', { rows: 3, maxlength: 500, placeholder: '材质、风格、用途…' }, item?.description || '')
+      const desc = el('textarea', { rows: 3, maxlength: 500, placeholder: '形状/颜色/材质等外观特征（写具体，出图越像）' }, item?.description || '')
       const sceneInput = el('input', { value: item?.scene || '', list: 'scene-datalist', placeholder: '选择或输入场景' })
       const sceneList = el('datalist', { id: 'scene-datalist' }, (meta.scenes || []).map((s) => el('option', { value: s })))
       const tags = tagInput(item?.tags || [])
