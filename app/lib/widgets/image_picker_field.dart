@@ -16,6 +16,7 @@ import '../data/api_client.dart';
 import '../data/models.dart';
 import '../theme.dart';
 import 'app_modal.dart';
+import 'optimize_dialog.dart';
 import 'toast.dart';
 
 /// 待上传图片（新建模式的本地暂存）。
@@ -138,6 +139,23 @@ class _ImagePickerFieldState extends State<ImagePickerField> {
     widget.onChanged();
   }
 
+  /// 打开素材图优化弹窗；采用后刷新图片列表。
+  Future<void> _optimize(int index) async {
+    final doc = await showOptimizeDialog(
+      context,
+      api: widget.api,
+      materialId: widget.docId!,
+      index: index,
+      originalFile: widget.images[index].file
+    );
+    if (doc == null || !mounted) return;
+    widget.images
+      ..clear()
+      ..addAll(doc.images);
+    widget.onChanged();
+    showToast(context, '已采用优化图（设为主图）');
+  }
+
   @override
   Widget build(BuildContext context) {
     final thumbs = <Widget>[
@@ -149,7 +167,8 @@ class _ImagePickerFieldState extends State<ImagePickerField> {
             errorBuilder: (_, _, _) => const _ThumbError()
           ),
           isPrimary: i == 0,
-          onDelete: () => _deleteExisting(i)
+          onDelete: () => _deleteExisting(i),
+          onOptimize: widget.docId != null && widget.kind == Api.kMaterials ? () => _optimize(i) : null
         ),
       for (var i = 0; i < widget.pending.length; i++)
         _thumb(
@@ -183,7 +202,12 @@ class _ImagePickerFieldState extends State<ImagePickerField> {
     );
   }
 
-  Widget _thumb({required Widget image, required bool isPrimary, required VoidCallback onDelete}) {
+  Widget _thumb({
+    required Widget image,
+    required bool isPrimary,
+    required VoidCallback onDelete,
+    VoidCallback? onOptimize
+  }) {
     return SizedBox(
       width: 84,
       height: 84,
@@ -218,7 +242,24 @@ class _ImagePickerFieldState extends State<ImagePickerField> {
                 child: const Padding(padding: EdgeInsets.all(4), child: Icon(Icons.close, size: 14, color: Colors.white))
               )
             )
-          )
+          ),
+          if (onOptimize != null)
+            Positioned(
+              left: 4,
+              bottom: 4,
+              child: Material(
+                color: AppColors.accent,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  onTap: onOptimize,
+                  customBorder: const CircleBorder(),
+                  child: const Padding(
+                    padding: EdgeInsets.all(5),
+                    child: Icon(Icons.auto_fix_high, size: 15, color: Colors.white)
+                  )
+                )
+              )
+            )
         ]
       )
     );
