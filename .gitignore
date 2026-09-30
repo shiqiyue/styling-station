@@ -1,5 +1,6 @@
 # 运行时数据
 server/data/
+server/_smoke.mjs
 
 # 依赖与日志
 node_modules/
