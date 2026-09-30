@@ -125,14 +125,15 @@ function details(summary, text, open, onToggle) {
   return d
 }
 
-function resultCard(res, idx) {
+/** 候选图卡片（搭配台与记录详情共用） */
+export function resultCard(res, idx, onChoose) {
   return el('div', { class: `result-card ${res.chosen ? 'chosen' : ''}` }, [
     el('a', { href: '/' + res.file, target: '_blank' }, el('img', { src: '/' + res.file, loading: 'lazy', alt: `候选 ${idx}` })),
     el('div', { class: 'rc-bar' }, [
       el('span', { class: 'rc-idx' }, `候选 ${idx}`),
       res.chosen ? el('span', { class: 'badge ok' }, '已选用') : null,
       el('span', { class: 'spacer' }),
-      el('button', { class: res.chosen ? '' : 'primary', onclick: () => chooseResult(idx, !res.chosen) }, res.chosen ? '取消选用' : '选用'),
+      el('button', { class: res.chosen ? '' : 'primary', onclick: () => onChoose(idx, !res.chosen) }, res.chosen ? '取消选用' : '选用'),
       el('a', { class: 'btn-link', href: '/' + res.file, download: `v${idx}.png` }, '下载')
     ])
   ])
@@ -173,7 +174,7 @@ function repaintRender(part = 'all') {
   if (part === 'all' || part === 'results') {
     clear(ui.resultsGrid)
     r.results.forEach((res, i) => {
-      if (res) ui.resultsGrid.append(resultCard(res, i + 1))
+      if (res) ui.resultsGrid.append(resultCard(res, i + 1, chooseResult))
     })
   }
 }

@@ -5,6 +5,7 @@ import { materialsView } from './views/materials.js'
 import { templatesView } from './views/templates.js'
 import { presetsView } from './views/presets.js'
 import { studioView } from './views/studio.js'
+import { rendersView } from './views/renders.js'
 
 const views = new Map()
 export function registerView(name, view) {
@@ -23,6 +24,7 @@ registerView('materials', materialsView)
 registerView('templates', templatesView)
 registerView('presets', presetsView)
 registerView('studio', studioView)
+registerView('renders', rendersView)
 
 const tabsEl = document.getElementById('tabs')
 const viewEl = document.getElementById('view')
@@ -40,7 +42,7 @@ function renderTabs(active) {
 
 function parseHash() {
   const raw = location.hash.replace(/^#\/?/, '')
-  return raw.split('/')[0] || 'materials'
+  return raw.split('?')[0].split('/')[0] || 'materials'
 }
 
 async function route() {
