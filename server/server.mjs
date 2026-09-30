@@ -130,8 +130,21 @@ export function createServer({ dataDir, settings } = {}) {
     })
   }
 
+  // ---------- 路由：预设（契约 §5.3） ----------
+  route('GET', '/api/presets', (req, res, params, url) => {
+    const qp = parseListQuery(url)
+    json(res, 200, store.listPresets(qp))
+  })
+  route('POST', '/api/presets', async (req, res) => json(res, 200, store.createPreset(await readJsonBody(req))))
+  route('GET', '/api/presets/:id', (req, res, params) => json(res, 200, store.getPreset(params.id)))
+  route('PUT', '/api/presets/:id', async (req, res, params) =>
+    json(res, 200, store.updatePreset(params.id, await readJsonBody(req)))
+  )
+  route('DELETE', '/api/presets/:id', (req, res, params) => json(res, 200, store.removePreset(params.id)))
+  route('POST', '/api/presets/:id/undelete', (req, res, params) => json(res, 200, store.undeletePreset(params.id)))
+  route('POST', '/api/presets/:id/duplicate', (req, res, params) => json(res, 200, store.duplicatePreset(params.id)))
+
   // 由后续任务在 createServer 内继续注册路由：
-  //   Task 6：/api/presets
   //   Task 7：/api/renders/auto-recommend、/api/presets/:id/auto-fill
   //   Task 10：/api/renders（含 SSE / stop / rerun / chosen）
   function queueStats() {
