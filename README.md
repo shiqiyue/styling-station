@@ -32,6 +32,25 @@ qodercli：<解析到的入口路径>
 netsh advfirewall firewall add rule name="styling-station" dir=in action=allow protocol=TCP localport=4584
 ```
 
+## Docker 部署（可选）
+
+不想在机器上装 Node 环境时，可以用 Docker 跑服务端（镜像内含 Node 与自动编译好的 Flutter Web 界面）。与 `start.bat` 方式**二选一**（两者都占用 4584 端口，不能同时运行）；数据、配置、备份完全共用 `server\data`，可随时切换。
+
+用法：装好 Docker（Windows 用 Docker Desktop，需启用 WSL2）后，在仓库根目录执行：
+
+```bash
+docker compose up -d --build
+```
+
+首次构建会从国内镜像下载 Flutter SDK（约 1.5GB）并编译 Web 前端，约 10~20 分钟；之后改代码重建只做增量编译。访问方式与 `start.bat` 相同（本机 `http://127.0.0.1:4584`，同事用内网 IP），防火墙照上文放行一次即可。
+
+注意事项：
+
+- **容器内出图必须用方舟通道**：qodercli 是本机 Windows 程序，容器里跑不了 → 确认 `server\data\settings.json` 里 `renderChannel` 为 `ark` 且已填 `arkApiKey` / `arkModel`（本机已配好，共用同一份配置即可直接用）。
+- **换端口**：改 `settings.json` 的 `port`，同步改 `docker-compose.yaml` 的端口映射，再 `docker compose up -d` 重建。
+- **常用命令**：`docker compose logs -f` 看日志；`docker compose down` 停止；更新代码后 `git pull` → `docker compose up -d --build` 重新部署。
+- 拉基础镜像慢时，给 Docker 配置国内镜像加速后重新构建；备份照旧直接打包 `server\data`（`backup.bat` 仍可用）。
+
 ## 界面
 
 - **素材库 / 样板库**：名称、描述、场景、标签、图片；支持筛选（场景/标签/关键词）与软删除恢复。
@@ -120,3 +139,4 @@ netsh advfirewall firewall add rule name="styling-station" dir=in action=allow p
 - **同事打不开**：确认防火墙规则已放行，且两台机器在同一内网；服务需保持这个窗口开着。
 - **网页还是旧界面**：确认 `app\build\web` 存在且服务已重启（服务启动时探测一次）。
 - **安卓 App 连不上/提示未配置服务器地址**：检查 `app\.env` 的 `SERVER_URL` 是否为这台机器的当前内网地址，改完需重新运行 `build-android.bat` 打包。
+- **Docker 方式起不来/打不开**：先看 `docker compose logs`；常见原因是 4584 端口被 start.bat 模式占用（两种方式只能跑一个），或首次构建尚未完成。
