@@ -1,11 +1,11 @@
 {
-    "name": "styling_station",
-    "short_name": "styling_station",
+    "name": "搭配台",
+    "short_name": "搭配台",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F4F3F0",
+    "theme_color": "#0F766E",
+    "description": "搭配台：素材库 / 样板库 / 预设 / 一键出图",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

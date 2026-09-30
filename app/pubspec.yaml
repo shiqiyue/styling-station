@@ -55,6 +55,22 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # 应用图标生成（`dart run flutter_launcher_icons`）：安卓 mipmap + Web 图标/favicon
+  flutter_launcher_icons: ^0.14.4
+
+# 应用图标配置（运行 `dart run flutter_launcher_icons` 生效）
+flutter_launcher_icons:
+  android: true
+  image_path: "assets/icon/app-icon.png"
+  # 自适应图标：内容位于安全区，背景色与设计稿底色一致
+  adaptive_icon_background: "#F4F3F0"
+  adaptive_icon_foreground: "assets/icon/app-icon-adaptive.png"
+  web:
+    generate: true
+    image_path: "assets/icon/app-icon.png"
+    background_color: "#F4F3F0"
+    theme_color: "#0F766E"
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
