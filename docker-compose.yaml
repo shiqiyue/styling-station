@@ -1,0 +1,20 @@
+# 搭配台服务端 —— Docker 部署（可选，替代 start.bat）
+#
+#   docker compose up -d --build    构建并启动（首次含 Flutter Web 编译，约 10~20 分钟）
+#   docker compose logs -f          查看日志
+#   docker compose down             停止并移除容器
+#
+# 与 start.bat 二选一：两者都占用 4584 端口，不能同时运行；
+# 数据 / 配置 / 密钥共用绑定的 ./server/data，两种方式可随时切换。
+services:
+  styling-station:
+    build: .
+    image: styling-station:latest
+    container_name: styling-station
+    ports:
+      # 改端口：同步改 server/data/settings.json 的 port，再 up -d 重建
+      - "4584:4584"
+    volumes:
+      # 数据 / 配置 / 出图产物与原生模式共用同一份（settings.json 含 ark 密钥，勿提交）
+      - ./server/data:/app/server/data
+    restart: unless-stopped

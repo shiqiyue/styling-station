@@ -1,0 +1,28 @@
+# ---- 不进构建上下文（镜像不需要 / 含敏感数据）----
+.git
+.gitignore
+.gitattributes
+Dockerfile
+docker-compose.yaml
+.dockerignore
+*.bat
+*.zip
+*.log
+README.md
+docs
+backups
+dist
+node_modules
+
+# 服务端：数据目录含 settings.json（arkApiKey），绝不入镜像
+server/data
+server/test
+server/_smoke.mjs
+
+# Flutter：只保留构建所需（lib / web / pubspec / analysis_options 等）
+app/.env
+app/.dart_tool
+app/build
+app/android
+app/test
+app/.idea
