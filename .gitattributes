@@ -1,2 +1,7 @@
 # Windows 批处理必须 CRLF 行尾，否则 cmd.exe 解析失败（GBK 编码内容是刻意为之）
 *.bat text eol=crlf
+
+# Docker 相关文件固定 LF 行尾（本机 core.autocrlf=true，防检出时转 CRLF 影响镜像构建）
+Dockerfile text eol=lf
+docker-compose.yaml text eol=lf
+.dockerignore text eol=lf
