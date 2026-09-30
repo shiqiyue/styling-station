@@ -172,6 +172,56 @@ test('jobs：CLI 失败 → error + stderrTail 落盘', async () => {
   }
 })
 
+test('jobs：renderChannel=ark → 走 runImageEdit（指令组装 + 停止可中止）', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'styling-jobs-ark-'))
+  const store = createStore({ dataDir })
+  const settings = { ...DEFAULT_SETTINGS, renderChannel: 'ark', arkApiKey: 'k', arkModel: 'm' }
+  let captured = null
+  let abortCalled = false
+  const renderer = {
+    runRender: async () => {
+      throw new Error('renderChannel=ark 时不应走 CLI 通道')
+    },
+    runImageEdit: (args) =>
+      new Promise((resolve) => {
+        captured = args
+        args.registerAbort(() => {
+          abortCalled = true
+          resolve({
+            ok: false,
+            images: [],
+            sessionId: null,
+            elapsedMs: 5,
+            exitCode: null,
+            stderrTail: '',
+            timedOut: false,
+            resultText: '',
+            error: '已停止'
+          })
+        })
+      })
+  }
+  const jobs = createJobs({ store, settings, renderer })
+  try {
+    const doc = makeDoc(store)
+    jobs.submit(doc)
+    await waitFor(() => captured !== null)
+    assert.match(captured.editInstruction, /- 图1 = 场景底板：名称 样板/)
+    assert.match(captured.editInstruction, /- 图2 = 素材：名称 素材/)
+    assert.equal(captured.candidateCount, 1)
+    assert.equal(captured.size, '1024x1024')
+    assert.equal(captured.attachments.length, 2) // 图1 样板 + 图2 素材
+    assert.equal(jobs.get(doc.id).status, 'running')
+
+    assert.equal(jobs.stop(doc.id), 'stopping')
+    await waitFor(() => jobs.get(doc.id)?.status === 'stopped')
+    assert.equal(abortCalled, true)
+    assert.equal(store.getRender(doc.id).status, 'stopped')
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true })
+  }
+})
+
 test('jobs：restartCleanup 把 queued/running 残留标记 stopped', () => {
   const { store, jobs, done } = setup()
   try {

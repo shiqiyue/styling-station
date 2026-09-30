@@ -2,7 +2,9 @@
  * 出图任务注册表（Spec §6.5）：
  * - 内存 Map 状态机 queued → running → done|error|stopped；并发上限 settings.maxConcurrent，超出按提交顺序排队。
  * - 每步同步 store.updateRender 落盘；事件经订阅者广播（SSE 用）；保留 blocks 供迟连订阅者回放 snapshot。
- * - stop：排队中直接出队置 stopped；运行中杀进程树，已完成的候选保留。
+ * - stop：排队中直接出队置 stopped；运行中杀进程树（或中止方舟请求），已完成的候选保留。
+ * - 出图通道按 settings.renderChannel 分发：'qodercli'（默认）走 renderer.runRender，
+ *   'ark' 走 renderer.runImageEdit（火山方舟图生图），两者结果契约一致。
  * - restartCleanup：服务重启时把 queued/running 残留标记 stopped。
  */
 
@@ -10,17 +12,20 @@ import { appendFileSync, copyFileSync, mkdirSync, readFileSync, rmSync } from 'n
 import { join } from 'node:path'
 
 import { imageDimensions } from './images.mjs'
-import { buildTaskPrompt } from './prompt.mjs'
+import { buildEditInstruction, buildTaskPrompt } from './prompt.mjs'
 import { killProcessTree, runRender } from './renderer.mjs'
+import { runImageEdit } from './image-edit.mjs'
 import { nowIso } from './store.mjs'
 
-const defaultRenderer = { runRender }
+const defaultRenderer = { runRender, runImageEdit }
 
 export function createJobs({ store, settings = {}, renderer = defaultRenderer, cli } = {}) {
   const jobs = new Map()
   const pending = []
   let running = 0
   const maxConcurrent = Math.max(1, Number(settings.maxConcurrent) || 2)
+  // 出图通道：'qodercli'（默认，文生图）或 'ark'（火山方舟图生图）；改 settings.json 后重启生效
+  const renderChannel = settings.renderChannel === 'ark' ? 'ark' : 'qodercli'
 
   function emit(j, event, data) {
     if (event === 'delta') j.blocks.push({ channel: data.channel, text: data.text })
@@ -65,6 +70,7 @@ export function createJobs({ store, settings = {}, renderer = defaultRenderer, c
       blocks: [],
       subs: new Set(),
       child: null,
+      abort: null,
       stopRequested: false,
       doc
     }
@@ -106,6 +112,7 @@ export function createJobs({ store, settings = {}, renderer = defaultRenderer, c
     if (j.status === 'running') {
       j.stopRequested = true
       killProcessTree(j.child)
+      j.abort?.() // 图生图通道（方舟）：无子进程，用中止函数取消请求
       return 'stopping'
     }
     return j.status
@@ -180,33 +187,73 @@ export function createJobs({ store, settings = {}, renderer = defaultRenderer, c
 
     const doc = j.doc
     const workDir = join(store.dataDir, 'work', j.id)
-    const taskPrompt = buildTaskPrompt({
-      mode: doc.mode,
-      template: doc.templateSnapshot,
-      entries: (doc.materialsSnapshot || []).map((m) => ({
-        material: m,
-        slotName: m.slotName ?? null,
-        slotPosition: m.slotPosition ?? null
-      })),
-      positionNote: doc.positionNote,
-      size: doc.size,
-      candidateCount: doc.candidateCount
-    })
+    const entries = (doc.materialsSnapshot || []).map((m) => ({
+      material: m,
+      slotName: m.slotName ?? null,
+      slotPosition: m.slotPosition ?? null
+    }))
+    const attachments = buildAttachments(store.dataDir, doc)
+    const forward = (ev) => {
+      logLine(j, ev)
+      emit(j, ev.event, ev.data)
+    }
 
-    const res = await renderer.runRender({
-      settings,
-      cli,
-      workDir,
-      attachments: buildAttachments(store.dataDir, doc),
-      taskPrompt,
-      registerChild: (child) => {
-        j.child = child
-      },
-      onEvent: (ev) => {
-        logLine(j, ev)
-        emit(j, ev.event, ev.data)
+    let res
+    if (renderChannel === 'ark') {
+      if (typeof renderer.runImageEdit !== 'function') {
+        res = {
+          ok: false,
+          images: [],
+          sessionId: null,
+          elapsedMs: 0,
+          exitCode: null,
+          stderrTail: '',
+          timedOut: false,
+          resultText: '',
+          error: '当前 renderer 未实现 runImageEdit'
+        }
+      } else {
+        const editInstruction = buildEditInstruction({
+          mode: doc.mode,
+          template: doc.templateSnapshot,
+          entries,
+          positionNote: doc.positionNote,
+          size: doc.size
+        })
+        res = await renderer.runImageEdit({
+          settings,
+          workDir,
+          attachments,
+          editInstruction,
+          size: doc.size,
+          candidateCount: doc.candidateCount,
+          registerAbort: (fn) => {
+            j.abort = fn
+          },
+          onEvent: forward
+        })
       }
-    })
+    } else {
+      const taskPrompt = buildTaskPrompt({
+        mode: doc.mode,
+        template: doc.templateSnapshot,
+        entries,
+        positionNote: doc.positionNote,
+        size: doc.size,
+        candidateCount: doc.candidateCount
+      })
+      res = await renderer.runRender({
+        settings,
+        cli,
+        workDir,
+        attachments,
+        taskPrompt,
+        registerChild: (child) => {
+          j.child = child
+        },
+        onEvent: forward
+      })
+    }
 
     const basePatch = { cliSessionId: res.sessionId, elapsedMs: res.elapsedMs }
 

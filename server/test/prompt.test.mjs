@@ -1,9 +1,9 @@
-/** prompt.mjs 测试：任务说明组装（free / preset）与固定 system prompt。 */
+/** prompt.mjs 测试：任务说明组装（free / preset）、图生图直投指令与固定 system prompt。 */
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { SYSTEM_PROMPT, buildTaskPrompt } from '../lib/prompt.mjs'
+import { SYSTEM_PROMPT, buildEditInstruction, buildTaskPrompt } from '../lib/prompt.mjs'
 
 const template = { name: '北欧客厅', description: '浅色木地板大窗', tags: ['客厅', '北欧'] }
 const materialA = { name: '灰砖', description: '哑光 600x600', tags: ['灰色', '瓷砖'] }
@@ -82,4 +82,42 @@ test('输出要求含「素材外观以素材图为唯一基准」约束', () =>
     candidateCount: 1
   })
   assert.match(p, /素材外观以素材图为唯一基准：先核对轮廓\/比例\/颜色\/材质\/细节再写提示词/)
+})
+
+test('buildEditInstruction：free 模式编号、位置与硬性要求', () => {
+  const p = buildEditInstruction({
+    mode: 'free',
+    template,
+    entries: [
+      { material: materialA, slotName: null, slotPosition: null },
+      { material: materialB, slotName: null, slotPosition: null }
+    ],
+    positionNote: '灰砖铺在客厅地面',
+    size: '1024x1024'
+  })
+  assert.match(p, /- 图1 = 场景底板：名称 北欧客厅/)
+  assert.match(p, /- 图2 = 素材：名称 灰砖/)
+  assert.match(p, /- 图3 = 素材：名称 挂画/)
+  assert.match(p, /整体位置说明：灰砖铺在客厅地面/)
+  assert.match(p, /输出尺寸 1024x1024/)
+  assert.match(p, /保持其构图、视角、透视、光影与色调不变/)
+  assert.match(p, /不得替换成通用款式/)
+  assert.match(p, /以素材图为准/)
+})
+
+test('buildEditInstruction：preset 模式含插槽名与空位置兜底', () => {
+  const p = buildEditInstruction({
+    mode: 'preset',
+    template,
+    entries: [
+      { material: materialA, slotName: '地板', slotPosition: '铺满客厅地面' },
+      { material: materialB, slotName: '挂画', slotPosition: '' }
+    ],
+    positionNote: '',
+    size: '1792x1024'
+  })
+  assert.match(p, /- 图2 = 素材（插槽「地板」）：名称 灰砖/)
+  assert.match(p, /插槽位置说明：铺满客厅地面/)
+  assert.match(p, /插槽位置说明：（空，由你按常识自动布位）/)
+  assert.match(p, /- 整体位置说明：（空，由你按常识自动布位）/)
 })

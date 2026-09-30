@@ -84,11 +84,21 @@ netsh advfirewall firewall add rule name="styling-station" dir=in action=allow p
   "renderTimeoutMs": 300000,
   "maxUploadMB": 10,
   "keepWorkDirs": false,
-  "qodercliPath": "qodercli"
+  "qodercliPath": "qodercli",
+  "renderChannel": "qodercli",
+  "arkBaseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+  "arkApiKey": "",
+  "arkModel": ""
 }
 ```
 
 修改后重启服务生效。
+
+**出图通道（`renderChannel`）**：
+
+- `qodercli`（默认）：现有链路（qodercli + ImageGen 文生图），需要 qodercli 已登录。
+- `ark`：火山方舟 Seedream **图生图**——样板与素材作为参考图直接参与合成，素材外观还原度更高。用法：在火山方舟控制台（console.volcengine.com/ark）开通 Seedream 并创建 API Key → 填入 `arkApiKey`，模型 ID（如 `doubao-seedream-…` 或推理接入点 `ep-…`）填入 `arkModel` → 重启服务。
+- API Key 只保存在本机 `server/data/settings.json`（不入 git、不出现在任何接口响应与错误信息里）。想切回去随时把 `renderChannel` 改回 `qodercli`。
 
 ## 备份
 
@@ -101,6 +111,7 @@ netsh advfirewall firewall add rule name="styling-station" dir=in action=allow p
 - **出图要登录 / 提示认证**：先在命令行用 qodercli 登录一次（与后台服务同一账号）。
 - **端口被占用**：改 `settings.json` 的 `port` 后重启。
 - **出图很慢或超时**：`renderTimeoutMs` 默认 5 分钟；并发由 `maxConcurrent` 控制（默认 2，超出的任务会排队）。
+- **出图报「未配置方舟图生图」**：`renderChannel` 为 `ark` 时必须填写 `arkApiKey` 与 `arkModel`（火山方舟控制台创建），改完重启服务；也可先把 `renderChannel` 改回 `qodercli` 应急。
 - **同事打不开**：确认防火墙规则已放行，且两台机器在同一内网；服务需保持这个窗口开着。
 - **网页还是旧界面**：确认 `app\build\web` 存在且服务已重启（服务启动时探测一次）。
 - **安卓 App 连不上/提示未配置服务器地址**：检查 `app\.env` 的 `SERVER_URL` 是否为这台机器的当前内网地址，改完需重新运行 `build-android.bat` 打包。

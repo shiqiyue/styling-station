@@ -11,7 +11,12 @@ export const DEFAULT_SETTINGS = {
   renderTimeoutMs: 300000,
   maxUploadMB: 10,
   keepWorkDirs: false,
-  qodercliPath: 'qodercli'
+  qodercliPath: 'qodercli',
+  // 出图通道：'qodercli'（默认，文生图）或 'ark'（火山方舟图生图，需填 arkApiKey + arkModel）
+  renderChannel: 'qodercli',
+  arkBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+  arkApiKey: '',
+  arkModel: ''
 }
 
 export function loadSettings(dataDir) {
