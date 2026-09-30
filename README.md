@@ -35,6 +35,10 @@ netsh advfirewall firewall add rule name="styling-station" dir=in action=allow p
 ## 界面
 
 - **素材库 / 样板库**：名称、描述、场景、标签、图片；支持筛选（场景/标签/关键词）与软删除恢复。
+- **素材图优化**（素材库 → 编辑素材 → 图片左下角「魔棒」）：AI 对拍摄的素材图做**去杂 + 摆正 + 干净浅背景**处理（如瓷砖照片里误入的纸箱、支架、杂物），产出干净的素材图供出图使用。
+  - 流程：点魔棒发起 → 实时进度 → 完成后**原图/优化图并排预览** → 「采用」（优化图加为素材图片并**设为主图**，原图保留）或「放弃」（删除临时产物）。
+  - 前提：需配好方舟图生图（`arkApiKey` + `arkModel`，见下文「出图通道」）；优化结果依赖 AI 重建，外观尽量贴近原图但非像素级复制。
+  - 限制：需要能访问火山方舟；服务重启后未完成的优化会自动作废（重新点魔棒即可）。
 - **预设**：一个样板 + 若干插槽（每槽：名称 + 标签 + 位置说明）；插槽标签用于自动填充推荐。
 - **搭配台**：
   - 自由模式：选样板 → 多选素材（可筛选、可「立即上传」、可「标签推荐」自动挑）→ 位置说明 + 候选张数（1/2/4）→ 出图；实时展示排队/进度/思考过程，候选图可选用、下载、再出一版。
@@ -98,6 +102,7 @@ netsh advfirewall firewall add rule name="styling-station" dir=in action=allow p
 
 - `qodercli`（默认）：现有链路（qodercli + ImageGen 文生图），需要 qodercli 已登录。
 - `ark`：火山方舟 Seedream **图生图**——样板与素材作为参考图直接参与合成，素材外观还原度更高。用法：在火山方舟控制台（console.volcengine.com/ark）的「开通管理」里**开通 Doubao-Seedream-5.0-pro（推荐，模型 ID `doubao-seedream-5-0-pro-260628`；追求速度可开 5.0-flash）**，再创建 API Key → 填入 `arkApiKey`、`arkModel` → 重启服务。开通后同一个 Key 即可调用，无需另建。
+- 「素材图优化」功能复用同一份方舟配置（与 `renderChannel` 无关，只要 `arkApiKey`/`arkModel` 已填即可用）。
 - API Key 只保存在本机 `server/data/settings.json`（不入 git、不出现在任何接口响应与错误信息里）。想切回去随时把 `renderChannel` 改回 `qodercli`。
 
 ## 备份
