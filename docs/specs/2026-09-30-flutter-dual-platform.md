@@ -47,7 +47,9 @@ app/
 - **配置注入**：`String.fromEnvironment('SERVER_URL')`；Web 空值 → 同源相对路径；Android 空值 → 启动即错误页（fail fast，提示改 `app/.env` 重新打包）。
 - **SSE 双实现**：条件导出（`export 'sse_web.dart' if (dart.library.io) 'sse_io.dart'`）；帧解析为纯函数（`sse_frames.dart`，单测覆盖六事件+心跳+半包）；Android 断开 2s 重连，Web 依赖 EventSource 自动重连（服务端重连即补发快照）。
 - **出图面板**：六事件（snapshot/delta/status/result/error/done）；delta 节流合并（250ms）；跨 Tab 保留长连（壳层 IndexedStack 懒创建 + 状态保留）；事件流不可用时降级 2s 轮询。
-- **记录页面**：列表 20 条分页 + `?template=&material=` 筛选；详情未完成任务用 SSE 事件触发 400ms 节流重取；版本链取子记录展示状态与时间；Web 端 hash 双向同步（深链/前进后退），Android 内部状态导航。
+- **记录页面**：列表 20 条分页 + `?template=&material=` 筛选；详情未完成任务用 SSE 事件触发 400ms 节流重取；版本链取子记录展示状态与时间；Web 端地址栏 hash 同步（`#/renders`、`#/renders/<id>` 深链/刷新可回到同一位置），Android 内部状态导航。
+- **Web hash 路由写入**：必须用 `history.replaceState`，不能写 `location.hash = ...`——Flutter web 引擎为 `MaterialApp(home:)` 维护单入口浏览器历史，直写 hash 会被判定为「外部导航」并还原地址、触发 hashchange，监听方立刻回退（表现为点击 Tab 没反应，2026-09-30 修复）。因此浏览器前进/后退不参与页内导航。
+- **Web 启动后写回 hash**：引擎启动时会把地址栏一次性还原为 `/`（单入口历史的初始路由上报，深链/刷新后地址被清掉）。壳与记录页在首帧后经 `reassertHashAfterBoot`（`Timer.run` 宏任务，保证晚于引擎还原）把当前路由/页内位置写回（`hash_route_web.dart`；Android 为空实现）。
 - **平台差异**：下载按钮仅 Web 显示；Web 上传即 `<input type=file multiple>`（无相机/画质参数），Android 走系统照片选择器（支持相机、多选与丢帧恢复）。
 - **安卓清单**：`INTERNET` 权限（release 默认不含）+ `android:usesCleartextTraffic="true"`（内网 HTTP）。
 - **Web 引导本地化**：`web/index.html` 内联 loader 指定本地 `canvasKitBaseUrl`、`fontFallbackBaseUrl`，关闭 Service Worker（防旧产物缓存）；`--no-web-resources-cdn` 构建。
@@ -74,10 +76,12 @@ app/
 - 两个构建脚本端到端成功：APK `dist\搭配台.apk`（64.9MB，`aapt2 dump badging`：包名 `com.stylingstation.styling_station`、label「搭配台」、INTERNET 权限、targetSdk 36；解包确认两款中文字体与自适应图标在内）；`build/web` 含本地 canvaskit 与图标。
 - 浏览器冒烟（127.0.0.1:4584）：Flutter 应用完整启动（标题「搭配台」、无控制台错误）；请求清单全部指向本机（canvaskit/字体/`/api/scenes`/`/api/materials`/素材缩略图均 200）→ 断外网可用。
 - 回滚验证：移走 `app/build/web` 重启 → `/` 回到旧界面；恢复后重启 → `/` 为新界面。
+- Web 路由修复验证（2026-09-30 晚，headless Chrome + CDP 真点击/全新文档加载）：点击「样板库」→ 地址栏 `#/templates` 2 秒后仍保持且 `/api/templates` 200（修复原 bug）；全新加载 `#/presets`、`#/renders/<id>` → 引擎还原（t≈300ms）后应用写回，最终地址与路由一致、连续两次刷新均保持（深链/刷新链路成立）。
 
 ## 8. 已知限制
 
 - 不构建 iOS（Windows 环境）；无模拟器镜像，真机手势/照片选择器/长连耗电由用户真机验收。
+- 浏览器前进/后退按钮不参与页内导航（Tab/记录详情切换）：Flutter web 引擎会撤销对浏览器历史的直接写入（见 §3），地址栏同步与深链走 `replaceState`；如需保留可用返回键的页内历史，需改用 Flutter Router 2.0 深度改造。
 - 安卓无画质参数（相机与相册均为原图上传，超过 `maxUploadMB` 时服务端拒绝并提示）。
 - 候选图「下载」仅 Web 提供；安卓端保存到相册（分享面板）留作后续版本（需新增依赖并真机验证）。
 - 旧 `web/` 暂保留作回滚，不删除（后续版本再定）。

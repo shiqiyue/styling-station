@@ -2,8 +2,10 @@
 /// 加载更多）与详情（快照明细、候选图选用/下载、版本链上/下版跳转、停止、再出一版）。
 ///
 /// 详情对未完成任务用 SSE 事件（status/result/done）触发 400ms 节流重取；
-/// Web 端 hash 与页面状态双向同步（`#/renders`、`#/renders/<id>`，
-/// 浏览器前进/后退可用）；Android 无地址栏，导航走内部状态。
+/// Web 端地址栏 hash 与页面状态同步（`#/renders`、`#/renders/<id>`，
+/// 刷新/复制链接可回到同一位置）；写入用 `replaceState`（原因见
+/// hash_route_web.dart：Flutter 引擎会撤销 `location.hash` 直写），
+/// 浏览器前进/后退不参与页内导航；Android 无地址栏，导航走内部状态。
 library;
 
 import 'dart:async';
@@ -123,6 +125,13 @@ class _RendersViewState extends State<RendersView> {
     super.initState();
     _applyLocation(readHashLocation());
     listenHashRoute(_onHashRoute);
+    // 与壳层同理（见 shell.dart）：引擎启动时会还原地址栏，首帧后把
+    // 本页位置（详情 id / 筛选项）写回，保证深链/刷新链路完整。
+    reassertHashAfterBoot(() {
+      if (!mounted) return;
+      final id = _detailId;
+      writeHashLocation(id != null ? 'renders/${Uri.encodeComponent(id)}' : _listLocation);
+    });
     // 首帧后再加载（initState 内 setState 会触发 build 期异常）
     final id = _detailId;
     WidgetsBinding.instance.addPostFrameCallback((_) {

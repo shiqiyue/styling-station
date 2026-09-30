@@ -64,6 +64,9 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     listenHashRoute(_onHashRoute);
+    // Web：引擎启动时会还原地址栏，首帧后把当前路由写回（原因见
+    // hash_route_web.dart）；Android 为空实现。
+    reassertHashAfterBoot(() => writeHashRoute(_tabs[_index].route));
   }
 
   void _onHashRoute(String route) {

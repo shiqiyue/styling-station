@@ -10,3 +10,5 @@ void writeHashLocation(String loc) {}
 void writeHashRoute(String route) {}
 
 void listenHashRoute(void Function(String route) callback) {}
+
+void reassertHashAfterBoot(void Function() write) {}
