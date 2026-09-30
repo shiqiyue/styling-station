@@ -1,0 +1,2 @@
+# Windows 批处理必须 CRLF 行尾，否则 cmd.exe 解析失败（GBK 编码内容是刻意为之）
+*.bat text eol=crlf
