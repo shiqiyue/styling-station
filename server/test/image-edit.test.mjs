@@ -139,7 +139,9 @@ test('image-edit：happy path（b64_json）→ 落盘 + 请求体核对', async 
     assert.equal(call.body.prompt, INSTRUCTION)
     assert.equal(call.body.watermark, false)
     assert.equal(call.body.response_format, 'b64_json')
+    assert.equal(call.body.stream, false)
     assert.equal(call.body.size, '1024x1024')
+    assert.equal(call.body.output_format, undefined, '4.x 模型不应携带 output_format')
     assert.equal(call.body.image.length, 2)
     // 顺序 = 图1 样板 → 图2 素材；内容为 Data URI
     assert.ok(call.body.image[0].startsWith('data:image/png;base64,'))
@@ -147,6 +149,27 @@ test('image-edit：happy path（b64_json）→ 落盘 + 请求体核对', async 
     assert.ok(
       Buffer.from(call.body.image[1].split(',')[1], 'base64').equals(Buffer.concat([TINY_PNG, Buffer.from([0])]))
     )
+  } finally {
+    s.done()
+    await ark.close()
+  }
+})
+
+test('image-edit：5.x 模型带 output_format=png，低于下限的尺寸自动等比放大', async () => {
+  const ark = await startFakeArk(jsonOk({ data: [{ b64_json: TINY_PNG.toString('base64') }] }))
+  const s = setupFiles()
+  try {
+    const res = await runImageEdit({
+      settings: settingsOf({ arkBaseUrl: `${ark.base}/api/v3`, arkModel: 'doubao-seedream-5-0-pro-260628' }),
+      workDir: s.workDir,
+      attachments: [s.tpl, s.mat],
+      editInstruction: INSTRUCTION,
+      size: '768x1024'
+    })
+    assert.equal(res.ok, true)
+    const body = ark.calls[0].body
+    assert.equal(body.output_format, 'png')
+    assert.equal(body.size, '960x1280')
   } finally {
     s.done()
     await ark.close()

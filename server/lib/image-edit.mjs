@@ -4,12 +4,16 @@
  * 与 renderer.runRender 返回同一契约（jobs 无感切换）：
  *   { ok, images, sessionId, elapsedMs, exitCode, stderrTail, timedOut, resultText, error? }
  *
- * 请求（2026-09-30 设计；字段名取自第三方镜像文档，联调时以官方文档为准）：
+ * 请求（2026-09-30 已按官方文档 + 真实 Key 核对）：
  *   POST {settings.arkBaseUrl}/images/generations
  *   Authorization: Bearer {settings.arkApiKey}
- *   { model, prompt, image: [dataUrl, ...], size, response_format: 'b64_json', watermark: false }
- *   image 数组顺序 = 图1 样板 → 图2..N 素材（与 buildEditInstruction 的编号一致）。
- * 待联调确认：image 多图字段的精确形状、size 精确像素的接受范围、模型 ID 写法。
+ *   { model, prompt, image: [dataUrl, ...], size, stream: false,
+ *     response_format: 'b64_json', watermark: false, output_format?: 'png' }
+ *   image 数组顺序 = 图1 样板 → 图2..N 素材（与 buildEditInstruction 的编号一致）；
+ *   data URI 官方格式 data:image/<小写格式>;base64,<...>；单图 ≤30MB、最多 10 张（5.0 pro/flash）。
+ *   size 精确像素模式：5.0 pro 总像素需在 [921600, 4624220]、宽高比 [1/16, 16]
+ *   —— 768x1024 / 1024x768 低于下限，等比放大为 960x1280 / 1280x960（ARK_SIZE_FIX）。
+ *   output_format 仅 5.x 支持（4.x 固定 jpeg），按模型名条件携带。
  *
  * - 候选逐张串行（每次请求产出一张）；整体超时 settings.renderTimeoutMs 触发 abort。
  * - registerAbort 登记「立即中止」函数（jobs.stop 调用）；中止/超时保留已出候选。
@@ -36,6 +40,13 @@ const EXT_MIME = {
 
 function mimeOf(file) {
   return EXT_MIME[extname(file).toLowerCase()] || 'image/png'
+}
+
+/** 5.0 pro 精确像素下限 921600（1280x720）：低于下限的尺寸等比放大（宽高比不变） */
+const ARK_SIZE_FIX = { '768x1024': '960x1280', '1024x768': '1280x960' }
+
+export function mapArkSize(size) {
+  return ARK_SIZE_FIX[String(size || '').trim()] || size
 }
 
 /** 脱敏：错误信息中不得出现 API Key */
@@ -170,17 +181,20 @@ export function runImageEdit({
           currentAbort = new AbortController()
           armTimeout()
 
+          const body = {
+            model,
+            prompt,
+            image: dataUrls,
+            size: size ? mapArkSize(size) : undefined,
+            stream: false,
+            response_format: 'b64_json',
+            watermark: false
+          }
+          if (/5-0/.test(model)) body.output_format = 'png' // 4.x 固定 jpeg，不支持该参数
           const res = await fetch(`${baseUrl}/images/generations`, {
             method: 'POST',
             headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-            body: JSON.stringify({
-              model,
-              prompt,
-              image: dataUrls,
-              size: size || undefined,
-              response_format: 'b64_json',
-              watermark: false
-            }),
+            body: JSON.stringify(body),
             signal: currentAbort.signal
           })
           if (!res.ok) {

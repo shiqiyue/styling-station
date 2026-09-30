@@ -97,7 +97,7 @@ netsh advfirewall firewall add rule name="styling-station" dir=in action=allow p
 **出图通道（`renderChannel`）**：
 
 - `qodercli`（默认）：现有链路（qodercli + ImageGen 文生图），需要 qodercli 已登录。
-- `ark`：火山方舟 Seedream **图生图**——样板与素材作为参考图直接参与合成，素材外观还原度更高。用法：在火山方舟控制台（console.volcengine.com/ark）开通 Seedream 并创建 API Key → 填入 `arkApiKey`，模型 ID（如 `doubao-seedream-…` 或推理接入点 `ep-…`）填入 `arkModel` → 重启服务。
+- `ark`：火山方舟 Seedream **图生图**——样板与素材作为参考图直接参与合成，素材外观还原度更高。用法：在火山方舟控制台（console.volcengine.com/ark）的「开通管理」里**开通 Doubao-Seedream-5.0-pro（推荐，模型 ID `doubao-seedream-5-0-pro-260628`；追求速度可开 5.0-flash）**，再创建 API Key → 填入 `arkApiKey`、`arkModel` → 重启服务。开通后同一个 Key 即可调用，无需另建。
 - API Key 只保存在本机 `server/data/settings.json`（不入 git、不出现在任何接口响应与错误信息里）。想切回去随时把 `renderChannel` 改回 `qodercli`。
 
 ## 备份
