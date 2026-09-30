@@ -3,6 +3,7 @@
 import { el } from './lib/dom.js'
 import { materialsView } from './views/materials.js'
 import { templatesView } from './views/templates.js'
+import { presetsView } from './views/presets.js'
 
 const views = new Map()
 export function registerView(name, view) {
@@ -19,6 +20,7 @@ const TABS = [
 
 registerView('materials', materialsView)
 registerView('templates', templatesView)
+registerView('presets', presetsView)
 
 const tabsEl = document.getElementById('tabs')
 const viewEl = document.getElementById('view')

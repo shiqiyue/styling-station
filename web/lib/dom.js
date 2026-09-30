@@ -119,6 +119,24 @@ export function confirmDialog(msg, { okText = '删除', danger = true } = {}) {
   })
 }
 
+/** 表单字段：field('名称', 控件) */
+export function field(label, control, { hint } = {}) {
+  return el('label', { class: 'field' }, [
+    el('span', { class: 'field-label' }, label),
+    control,
+    hint ? el('span', { class: 'field-hint' }, hint) : null
+  ])
+}
+
+/** 简易防抖 */
+export function debounce(fn, ms = 250) {
+  let timer
+  return (...args) => {
+    clearTimeout(timer)
+    timer = setTimeout(() => fn(...args), ms)
+  }
+}
+
 /** chips 标签输入：tagInput(value, onChange) → { el, get, set } */
 export function tagInput(value = [], onChange, { max = 20, maxLen = 20 } = {}) {
   const list = [...value]

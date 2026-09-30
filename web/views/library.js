@@ -1,7 +1,7 @@
 /** 素材库 / 样板库同构视图工厂：筛选栏 + 卡片网格 + 编辑弹窗（字段 + 图片上传）。 */
 
 import { api } from '../lib/api.js'
-import { el, clear, toast, confirmDialog, modal, tagInput, imageUploader } from '../lib/dom.js'
+import { el, clear, toast, confirmDialog, modal, field, tagInput, imageUploader } from '../lib/dom.js'
 
 export function createLibraryView(kind) {
   const label = kind === 'materials' ? '素材' : '样板'
@@ -253,10 +253,6 @@ export function createLibraryView(kind) {
           await reload()
         }
       })
-    }
-
-    function field(text, control) {
-      return el('label', { class: 'field' }, [el('span', { class: 'field-label' }, text), control])
     }
 
     await reload()
