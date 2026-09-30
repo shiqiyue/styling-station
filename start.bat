@@ -1,8 +1,8 @@
 @echo off
-chcp 65001 >nul
-title styling-station æ­é…å°
+chcp 936 >nul
+title styling-station ´îÅäÌ¨
 cd /d "%~dp0"
 node "%~dp0server\server.mjs"
 echo.
-echo æœåŠ¡å·²é€€å‡ºã€‚æŒ‰ä»»æ„é”®å…³é—­çª—å£...
+echo ·þÎñÒÑÍË³ö¡£°´ÈÎÒâ¼ü¹Ø±Õ´°¿Ú...
 pause >nul

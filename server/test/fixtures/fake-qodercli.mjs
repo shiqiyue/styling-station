@@ -38,6 +38,8 @@ if (cwd) {
 }
 
 async function main() {
+  // 被 `node --test server/test/` 当作测试文件直接执行时不具备 --cwd：安全退出（本夹具只能作为被调用进程使用）
+  if (!cwd) process.exit(0)
   const delay = Number(process.env.FAKE_DELAY_MS || 5)
   emit({ type: 'system', subtype: 'init', session_id: 'fake-session-0001' })
   if (process.env.FAKE_HANG === '1') {
