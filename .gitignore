@@ -1,0 +1,9 @@
+# 运行时数据
+server/data/
+
+# 依赖与日志
+node_modules/
+*.log
+
+# 备份
+backups/
