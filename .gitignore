@@ -8,3 +8,7 @@ node_modules/
 
 # 备份
 backups/
+
+# Flutter 应用（app/）
+app/.env
+dist/
