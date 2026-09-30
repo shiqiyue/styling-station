@@ -5,7 +5,7 @@
 
 import http from 'node:http'
 import { readFile } from 'node:fs/promises'
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, normalize, extname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { networkInterfaces } from 'node:os'
@@ -22,6 +22,9 @@ import { pickRenderSize } from './lib/images.mjs'
 
 export const VERSION = '0.1.0'
 const WEB_DIR = fileURLToPath(new URL('../web/', import.meta.url))
+// Flutter Web 构建产物：存在则优先提供（切回旧界面 = 移走该目录，零配置）
+const APP_WEB_DIR = fileURLToPath(new URL('../app/build/web/', import.meta.url))
+const webRoot = existsSync(join(APP_WEB_DIR, 'index.html')) ? APP_WEB_DIR : WEB_DIR
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -34,7 +37,15 @@ const MIME = {
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
+  '.otf': 'font/otf',
+  '.ttf': 'font/ttf',
+  '.woff2': 'font/woff2',
+  '.bin': 'application/octet-stream',
+  '.mem': 'application/octet-stream',
+  '.map': 'application/json; charset=utf-8',
+  '.symbols': 'text/plain; charset=utf-8'
 }
 
 /** 匹配 :param 与尾部 *（catch-all） */
@@ -423,7 +434,7 @@ export function createServer({ dataDir, settings } = {}) {
   // ---------- 静态与文件 ----------
   async function serveStatic(req, res, pathname) {
     const rel = pathname === '/' ? 'index.html' : pathname.slice(1)
-    let root = WEB_DIR
+    let root = webRoot
     let target = rel
     if (rel.startsWith('files/')) {
       // 数据图片：仅允许 data/files/ 下（Task 5 起使用）
