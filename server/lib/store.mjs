@@ -234,11 +234,13 @@ export function createStore({ dataDir }) {
     const doc = mustGet(kind, id)
     const file = str(meta.file)
     if (!file) throw new HttpError(400, 'INVALID_IMAGE', '图片文件路径不能为空')
+    const makePrimary = meta.primary === true || doc.images.length === 0
+    if (makePrimary) for (const im of doc.images) im.primary = false
     const entry = {
       file,
       width: Number(meta.width) || 0,
       height: Number(meta.height) || 0,
-      primary: doc.images.length === 0
+      primary: makePrimary
     }
     doc.images.push(entry)
     doc.updatedAt = nowIso()

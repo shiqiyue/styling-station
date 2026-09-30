@@ -263,3 +263,21 @@ test('scenes / tags 聚合', () => {
   assert.deepEqual(store.tags('materials'), [])
   done()
 })
+
+test('addImage：显式 primary 提升为主图并降级既有主图；缺省行为向后兼容', () => {
+  const { store, done } = tmpStore()
+  try {
+    const m = store.create('materials', { name: 'a', scene: '瓷砖' })
+    store.addImage('materials', m.id, { file: 'files/materials/x/1.png' })
+    store.addImage('materials', m.id, { file: 'files/materials/x/2.png' })
+    let doc = store.get('materials', m.id)
+    assert.deepEqual(doc.images.map((i) => i.primary), [true, false]) // 旧行为不变
+
+    store.addImage('materials', m.id, { file: 'files/materials/x/3.png', primary: true })
+    doc = store.get('materials', m.id)
+    assert.deepEqual(doc.images.map((i) => i.primary), [false, false, true])
+    assert.equal(doc.images[2].width, 0) // 缺省 width/height 行为不变
+  } finally {
+    done()
+  }
+})
