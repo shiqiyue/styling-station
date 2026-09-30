@@ -1,6 +1,7 @@
 # styling-station 设计规格：AI 搭配台（素材库 + 样板库 + 效果图生成）
 
 - 日期：2026-09-30
+- 修订：2026-09-30 第二轮——增补「预设搭配台」（样板 + 多个素材插槽，插槽 = 名称 + 标签 + 位置说明，可复用；插槽按标签自动预选素材）
 - 状态：待评审
 - 范围：部署在用户自己的 Windows 机器上、内网多人访问（无登录）；单仓库 Node 零依赖服务 + 静态前端 + qodercli harness 出图
 - 适用业态：首饰搭配、建材瓷砖、服装鞋帽（一套通用系统，由「场景」字段区分）
@@ -14,8 +15,9 @@
 1. **素材库**：素材名称、描述、场景、标签、图片（≥1 张）的增删改查与筛选。
 2. **样板库**：样板名称、描述、场景、标签、图片（≥1 张）的增删改查与筛选。
 3. **搭配台**：选样板 → 选素材（支持筛选、随时立即上传、按标签自动推荐组合）→ 位置说明（可留空自动布位）→ 出 1/2/4 张候选效果图。
-4. **记录**：每次出图存记录（含素材/样板快照），支持「再出一版」迭代与版本对比挑选。
-5. **内网访问**：同事用浏览器直接使用（http://<内网IP>:4584）。
+4. **预设搭配台**：把「样板 + 多个素材插槽（插槽 = 名称 + 标签 + 位置说明）」保存为可复用预设；用预设搭配时，各插槽按标签自动预选素材（可逐个替换、清空、立即上传），也支持一键自动填充全部插槽。
+5. **记录**：每次出图存记录（含素材/样板/预设快照），支持「再出一版」迭代与版本对比挑选。
+6. **内网访问**：同事用浏览器直接使用（http://<内网IP>:4584）。
 
 非目标（明确排除）：
 
@@ -56,13 +58,13 @@ D:\project\styling-station\
 │   ├── data/                # 运行时数据（gitignore）
 │   └── test/                # node:test（含 stub-CLI 全链路）
 ├── web/                     # 纯静态前端（原生 JS ES modules + CSS，无构建链）
-│   ├── index.html           # 四个 Tab：素材库 / 样板库 / 搭配台 / 记录
+│   ├── index.html           # 五个 Tab：素材库 / 样板库 / 预设 / 搭配台 / 记录
 │   ├── app.js               # 路由（Tab 切换）+ 公共组件（卡片、弹窗、toast）
-│   ├── views/               # materials.js / templates.js / studio.js / renders.js
+│   ├── views/               # materials.js / templates.js / presets.js / studio.js / renders.js
 │   ├── lib/api.js           # 服务端客户端：fetch + SSE 解析
 │   ├── lib/store.js         # 前端状态（当前 Tab、筛选条件、搭配台选择）
 │   └── style.css
-├── docs/superpowers/specs/  # 本设计文档
+├── docs/specs/              # 本设计文档（docs/plans/ 放实现计划）
 ├── start.bat                # 启动 + 打印内网访问地址
 ├── backup.bat               # 一键备份 data 目录
 ├── .gitignore               # server/data/、node_modules/、*.log
@@ -73,7 +75,7 @@ D:\project\styling-station\
 
 | 路径 | 内容 |
 |---|---|
-| `library.json` | 素材 + 样板（含软删标记） |
+| `library.json` | 素材 + 样板 + 预设（含软删标记） |
 | `renders.json` | 出图记录（含版本链） |
 | `files/materials/<id>/<n>.<ext>` | 素材原图（首图为主图） |
 | `files/templates/<id>/<n>.<ext>` | 样板原图 |
@@ -83,7 +85,7 @@ D:\project\styling-station\
 
 ## 4. 数据模型
 
-统一由 `store.mjs` 读写，写入用「临时文件 + rename」保证原子性；id 格式 `m-<yyyyMMddHHmmss>-<4位随机>`（t-/r- 同理）。
+统一由 `store.mjs` 读写，写入用「临时文件 + rename」保证原子性；id 格式 `m-<yyyyMMddHHmmss>-<4位随机>`（t-/p-/r- 同理）。
 
 **素材 material / 样板 template**（同构）：
 
@@ -106,14 +108,36 @@ D:\project\styling-station\
 - `images` 至少 1 张，单张 ≤10MB，允许 jpg/jpeg/png/webp；`primary` 指首图。
 - 删除为软删（`deleted:true`），历史记录快照不受影响；提供「已删除」筛选可恢复。
 
+**预设 preset**：
+
+```json
+{
+  "id": "p-20260930160000-e5f6",
+  "name": "现代卧室·墙纸地板",
+  "templateId": "t-...",
+  "slots": [
+    { "id": "s-1", "name": "墙纸", "tags": ["墙纸", "现代"], "positionNote": "贴在床头背景墙上" },
+    { "id": "s-2", "name": "地板", "tags": ["地板", "木纹"], "positionNote": "铺满卧室地面" }
+  ],
+  "createdAt": "...", "updatedAt": "...", "deleted": false
+}
+```
+
+- 预设只引用样板（`templateId`）不复制样板内容；出图时用当时样板图，记录里才做快照。
+- 插槽：名称非空 ≤20 字符、标签 ≤10 个、位置说明 ≤200 字符；插槽数 1~10，界面支持增删与上下排序；插槽 `id` 由服务端生成。
+- 样板被软删时预设标记「样板失效」并拒绝出图（§5.4 校验）。
+- 删除为软删；支持 `duplicate`（复制后改插槽另存）。
+
 **记录 render**：
 
 ```json
 {
   "id": "r-20260930154000-c3d4",
+  "mode": "free | preset",
   "templateSnapshot": { "id": "t-...", "name": "...", "description": "...", "scene": "...", "tags": [], "images": [...] },
-  "materialsSnapshot": [ { "id": "m-...", "name": "...", "description": "...", "tags": [], "images": [...] } ],
-  "positionNote": "项链戴在模特脖子上",     // 可为空字符串
+  "presetSnapshot": { "id": "p-...", "name": "现代卧室·墙纸地板", "slots": [{ "id": "s-1", "name": "墙纸", "positionNote": "贴在床头背景墙上", "tags": ["墙纸"] }] },   // 自由模式为 null
+  "materialsSnapshot": [ { "slotId": "s-1", "slotName": "墙纸", "id": "m-...", "name": "...", "description": "...", "tags": [], "images": [...] } ],                       // 自由模式 slotId/slotName 为 null
+  "positionNote": "自由模式=位置说明；预设模式=补充说明",     // 均可为空字符串
   "candidateCount": 2,
   "size": "1024x1536",
   "status": "queued|running|done|error|stopped",
@@ -125,8 +149,8 @@ D:\project\styling-station\
 }
 ```
 
-- 快照目的：库中素材/样板后续被改/删，历史记录仍完整可读可对比。
-- 「再出一版」创建新记录：复制快照与说明（可覆盖 `materialIds`/`positionNote`），`parentId` 指向原记录；记录页按版本链展示，可勾选「选用」标记。
+- 快照目的：库中素材/样板/预设后续被改/删，历史记录仍完整可读可对比。
+- 「再出一版」创建新记录：复制快照与说明（可覆盖素材选择——自由模式 `materialIds`、预设模式 `assignments`——及 `positionNote`），`parentId` 指向原记录；记录页按版本链展示，可勾选「选用」标记。
 
 ## 5. 接口契约
 
@@ -147,10 +171,20 @@ D:\project\styling-station\
 - 提交校验：`name` 非空 ≤50 字符；`description` ≤500；`scene` 非空。
 - 图片为两步操作（先建条目、再传图），允许条目短暂无图；但**搭配台选用与出图时服务端强制校验每个被选素材/样板至少有 1 张图**，无图直接 400 报错；界面在卡片上给「待传图」角标提示。
 
-### 5.3 搭配与出图
+### 5.3 预设
 
-- `POST /api/renders` `{ templateId, materialIds: [], positionNote: "", candidateCount: 1|2|4 }` → `{ renderId }`（校验：样板有图、每个素材有图、素材 ≤8 个、`positionNote` ≤1000 字符）→ 任务入队
-- `POST /api/renders/auto-recommend` `{ templateId, limit=6 }` → `{ recommended: [materialId...], candidates: [{materialId, score}] }`（服务端标签打分，供前端「自动推荐」填充）
+- `GET /api/presets?q=&limit=&offset=&includeDeleted=0` → `{ items, total }`（`q` 匹配名称）
+- `POST /api/presets` `{ name, templateId, slots: [{ name, tags, positionNote }] }` → 新建
+- `GET /api/presets/:id` / `PUT /api/presets/:id`（整体替换 slots）/ `DELETE /api/presets/:id`（软删）/ `POST /api/presets/:id/undelete` / `POST /api/presets/:id/duplicate`
+- `POST /api/presets/:id/auto-fill` → 逐插槽按标签打分（§7）：
+  `{ slots: [{ slotId, recommended: materialId | null, candidates: [{ materialId, score }] }] }`
+  无命中标签的插槽 `recommended: null`（前端标黄提示手选），`candidates` 以同场景素材兜底排序。
+
+### 5.4 搭配与出图
+
+- `POST /api/renders`（自由模式）`{ mode: "free", templateId, materialIds: [], positionNote: "", candidateCount: 1|2|4 }` → `{ renderId }`（校验：样板有图、每个素材有图、素材 ≤8 个、`positionNote` ≤1000 字符）
+- `POST /api/renders`（预设模式）`{ mode: "preset", presetId, assignments: [{ slotId, materialId }], positionNote: "", candidateCount: 1|2|4 }` → `{ renderId }`（校验：预设存在、样板未删且有图、每个插槽恰好一个素材且素材有图、`positionNote` ≤1000 字符）
+- 两者均为任务入队；`POST /api/renders/auto-recommend` `{ templateId, limit=6 }` → `{ recommended: [materialId...], candidates: [{materialId, score}] }`（服务端标签打分，供自由模式前端「自动推荐」填充）
 - `GET /api/renders?templateId=&materialId=&limit=&offset=` → 记录列表（倒序）
 - `GET /api/renders/:id` → 单条详情（含版本链 `parentId`/`childrenIds`）
 - `GET /api/renders/:id/stream`（SSE）：
@@ -163,11 +197,11 @@ D:\project\styling-station\
   | `error` / `done` | 同 web-ask 模式 | 终态 |
   心跳每 15s `: ping`。
 - `POST /api/renders/:id/stop` → 终止（含排队中取消）
-- `POST /api/renders/:id/rerun` `{ materialIds?, positionNote?, candidateCount? }` → 新记录（`parentId`）
+- `POST /api/renders/:id/rerun` `{ materialIds? | assignments?, positionNote?, candidateCount? }`（沿用原记录模式；预设模式用 `assignments` 覆盖插槽素材）→ 新记录（`parentId`）
 - `POST /api/renders/:id/results/:index/chosen` `{ chosen: true }` → 标记选用（同记录内单选）
 - `GET /files/...` → 静态图片（仅允许 `files/` 前缀，防目录穿越）
 
-### 5.4 上传细节（upload.mjs）
+### 5.5 上传细节（upload.mjs）
 
 零依赖手写 multipart 解析：按 boundary 切分、支持二进制、限制请求体 ≤12MB（单图 ≤10MB）、校验 magic bytes（JPEG `FF D8 FF`、PNG `89 50 4E 47`、WEBP `RIFF....WEBP`）；文件名一律服务端重写为 `<n>.<ext>`，不使用客户端文件名。
 
@@ -202,8 +236,9 @@ D:\project\styling-station\
 ```
 这是一次「搭配效果图」生成任务。
 - 图1 = 样板（场景底板）：名称 <name>；描述 <desc>；标签 <tags>
-- 图2..图N = 素材：每个素材给出「名称/描述/标签/对应位置说明（来自用户，可能为空）」
-- 位置说明（整体）：<用户输入；空则写「（空，由你按常识自动布位）」>
+- 图2..图N = 素材：每个素材给出「插槽名（仅预设模式）/ 名称 / 描述 / 标签 / 位置说明
+  （预设模式 = 该插槽的位置说明；自由模式 = 从整体说明对应出的位置，可能为空）」
+- 补充说明（整体位置说明）：<用户输入；空则写「（空，由你按常识自动布位）」>
 - 输出要求：尺寸 <WxH>；共 <N> 张候选；把每个素材放进样板场景的对应位置，
   风格、光影、透视与样板图一致，素材外观尽量贴近素材图（形状/颜色/材质）。
 ```
@@ -242,22 +277,30 @@ D:\project\styling-station\
 
 打分规则（简单、可解释）：
 
-- 基础分 = 样板标签 ∩ 素材标签 的命中数 × 2；
-- 同 `scene` 加 1 分；素材 `primary` 图存在为前置（无图素材不进候选）；
-- 名称/描述里包含样板标签词，每个 +0.5（弱信号）；
+- 打分基准：自由模式用「样板标签」，预设模式用「插槽标签」（以下统称「基准标签」）；
+- 基础分 = 基准标签 ∩ 素材标签 的命中数 × 2；
+- 同 `scene`（与样板场景相同）加 1 分；素材 `primary` 图存在为前置（无图素材不进候选）；
+- 名称/描述里包含基准标签词，每个 +0.5（弱信号）；
 - 得分降序、同分按 `updatedAt` 新者优先；返回 Top `limit`（默认 6）+ 全部候选及分数。
+- 预设模式 `auto-fill`：逐插槽套用同一打分；无命中插槽 `recommended:null`（界面标黄），候选以同场景素材兜底排序，不阻塞出图流程。
 - 前端「自动推荐」按钮：用推荐结果填充已选素材（用户可再增删换），自动推荐不直接出图。
 
 ## 8. 前端（web/）
 
 - 原生 JS ES modules，`history`/`location.hash` 做 Tab 路由；响应式（桌面优先，手机可用）。
 - **素材库 / 样板库**：顶部筛选栏（场景下拉、标签多选 chips、搜索框、显示已删除开关）；卡片网格（主图、名称、场景、标签、编辑/删除）；「新建」按钮打开编辑弹窗（名称/描述/场景/标签 + 图片上传区，支持多图、首图主图标记、拖拽上传）；图片按需加载。
-- **搭配台**（三栏，窄屏纵向堆叠）：
-  - 左栏：样板选择（场景/标签筛选 + 搜索 + 卡片单选，显示当前选中样板大图预览）；
-  - 中栏：素材选择（筛选 + 搜索 + 「立即上传」按钮（弹窗新建素材，成功后自动选中并保持搭配台状态）+「按标签自动推荐」按钮 + 多选卡片，已选显示角标与排序）；
-  - 右栏：位置说明输入框（placeholder 示例：「项链戴在模特脖子上」「瓷砖铺在客厅地面」）、候选张数（1/2/4）、「生成效果图」按钮；
+- **预设**：列表（名称、样板缩略图、插槽数、编辑/复制/删除、失效角标）；编辑器 = 选样板（复用样板选择器）+ 插槽列表（每行：插槽名、标签 chips、位置说明；可增删、上下移动排序，插槽数 1~10）+ 保存。样板被删的预设显示「样板失效」。
+- **搭配台**（三栏，窄屏纵向堆叠；顶部「自由搭配 / 按预设搭配」模式切换）：
+  - 自由模式：
+    - 左栏：样板选择（场景/标签筛选 + 搜索 + 卡片单选，显示当前选中样板大图预览）；
+    - 中栏：素材选择（筛选 + 搜索 + 「立即上传」按钮（弹窗新建素材，成功后自动选中并保持搭配台状态）+「按标签自动推荐」按钮 + 多选卡片，已选显示角标与排序）；
+    - 右栏：位置说明输入框（placeholder 示例：「项链戴在模特脖子上」「瓷砖铺在客厅地面」）、候选张数（1/2/4）、「生成效果图」按钮。
+  - 预设模式：
+    - 顶部选预设（筛选/搜索）；下方显示样板预览 + 插槽卡片列表；每张插槽卡 = 插槽名、标签、位置说明、已选素材缩略图，操作「选素材 / 换素材（抽屉内默认按插槽标签预筛选，含「立即上传」）/ 清空」；
+    - 「一键自动填充全部插槽」按钮（调 auto-fill，逐插槽预选，可再逐个替换）；
+    - 右栏：补充说明（可空）+ 候选张数 + 「生成效果图」。
   - 结果区：排队位置/进度（thinking 折叠）、候选图逐张出现（可点开大图、标记选用、下载、基于此搭配「再出一版」）。
-- **记录**：列表（缩略图、样板名、素材数、时间、状态）；详情页展示完整快照 + 候选图 + 版本链（父/子记录跳转）+ 再出一版/停止/标记选用。
+- **记录**：列表（缩略图、样板名/预设名、素材数、时间、状态）；详情页展示完整快照 + 候选图 + 版本链（父/子记录跳转）+ 再出一版/停止/标记选用。
 - 所有破坏性操作（删除素材/记录）二次确认；接口错误统一 toast 中文提示。
 
 ## 9. 配置与运维
@@ -272,11 +315,12 @@ D:\project\styling-station\
 
 - `node:test` 单元/集成（零依赖）：
   - `store`：CRUD、软删/恢复、快照不可变、原子写；
-  - `matcher`：打分与排序用例；
+  - `matcher`：打分与排序用例、预设逐插槽 auto-fill（含无命中兜底）；
+  - `presets`：CRUD、插槽校验（数量/长度边界）、样板软删后出图拒绝、duplicate；
   - `upload`：multipart 正常/超限/伪造扩展名（magic 校验）/边界空文件；
   - `images`：PNG/JPEG 宽高解析、比例映射表逐档验证；
   - `jobs`：并发上限、排队顺序、停止、重启残留标记；
-  - **stub-CLI 全链路**：以假 qodercli（node 脚本模拟 stream-json + 往 cwd/vibe_images 落图）跑通「提交 → 排队 → 出图 → 收图落盘 → SSE 事件序列」；
+  - **stub-CLI 全链路**：以假 qodercli（node 脚本模拟 stream-json + 往 cwd/vibe_images 落图）跑通「提交 → 排队 → 出图 → 收图落盘 → SSE 事件序列」；自由模式与预设模式各一条（预设模式断言插槽位置说明进入提示词）；
 - 人工 e2e：用真实素材/样板各 1 张跑一次真实出图，人工确认效果图与文件落地、记录可回看、再出一版可用。
 
 ## 11. 里程碑
@@ -284,13 +328,15 @@ D:\project\styling-station\
 | 里程碑 | 内容 | 验收 |
 |---|---|---|
 | M1 | 服务骨架 + 静态页框架；素材库/样板库 CRUD + 上传 + 筛选 | 页面上完成两库增删改查与图片显示；单测全绿 |
-| M2 | 搭配台：手选 + 立即上传 + 位置说明 + 出图（1 张）+ SSE 进度 + 收图落盘 | 真实跑通一条出图并在页面看到效果图 |
-| M3 | 自动推荐 + 候选 1/2/4 张 + 记录/迭代（选用、再出一版、停止）+ 并发队列 | auto-recommend 与版本链可用；stub-CLI 全链路测试全绿 |
-| M4 | 内网部署（start.bat/防火墙/README）+ backup.bat + 排障说明 | 同事机器浏览器访问可用 |
+| M2 | 搭配台（自由模式）：手选 + 立即上传 + 位置说明 + 出图（1 张）+ SSE 进度 + 收图落盘 + 并发队列（上限 2） | 真实跑通一条出图并在页面看到效果图 |
+| M3 | 预设 Tab（编辑器 + 插槽管理）+ 搭配台预设模式（插槽自动预选 / 一键填充）+ 自由模式自动推荐 + 候选 1/2/4 张 | 预设「建 → 用 → 出图」全链路可用 |
+| M4 | 记录/迭代（选用、再出一版、版本对比、停止）+ stub-CLI 全链路测试 | 版本链可用；测试全绿 |
+| M5 | 内网部署（start.bat/防火墙/README）+ backup.bat + 排障说明 | 同事机器浏览器访问可用 |
 
 ## 12. 风险与已知限制
 
 - 出图是 AI 概念图，素材外观「贴近」但不保证一致（如实测花瓶形状微漂移）；如需像素级还原须后续外接图生图模型（接口已预留）。
 - 全部出图共用本机 qodercli 登录账号，额度消耗约 0.15~0.25 credits/张；并发上限 2 防刷爆。
 - Windows 防火墙首次放行需管理员操作（README 说明）。
+- 预设的插槽标签依赖素材打标质量：命中不到候选时插槽留空待手选（界面标黄），不阻塞出图流程。
 - qodercli 版本升级可能改变 stream-json 事件形态：原始事件流落盘 `data/logs/`，以此排障（沿用 web-ask 经验）。
