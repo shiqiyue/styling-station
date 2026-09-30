@@ -15,6 +15,7 @@ import { json, sendError, HttpError, readJsonBody } from './lib/http.mjs'
 import { resolveQoderCliSpawn } from './lib/qodercli.mjs'
 import { createStore } from './lib/store.mjs'
 import { parseMultipart, validateImage } from './lib/upload.mjs'
+import { rankMaterials } from './lib/matcher.mjs'
 
 export const VERSION = '0.1.0'
 const WEB_DIR = fileURLToPath(new URL('../web/', import.meta.url))
@@ -144,8 +145,38 @@ export function createServer({ dataDir, settings } = {}) {
   route('POST', '/api/presets/:id/undelete', (req, res, params) => json(res, 200, store.undeletePreset(params.id)))
   route('POST', '/api/presets/:id/duplicate', (req, res, params) => json(res, 200, store.duplicatePreset(params.id)))
 
+  // ---------- 路由：标签推荐（契约 §5.4 / §7） ----------
+  const toCandidate = (r) => ({ materialId: r.materialId, score: r.score })
+
+  route('POST', '/api/renders/auto-recommend', async (req, res) => {
+    const body = await readJsonBody(req)
+    const t = store.get('templates', body.templateId)
+    const limit = Number(body.limit) > 0 ? Number(body.limit) : 6
+    const materials = store.list('materials', {}).items
+    const ranked = rankMaterials({ baseTags: t.tags, scene: t.scene, materials })
+    json(res, 200, {
+      recommended: ranked.filter((r) => r.tagHits > 0).slice(0, limit).map((r) => r.materialId),
+      candidates: ranked.map(toCandidate)
+    })
+  })
+
+  route('POST', '/api/presets/:id/auto-fill', (req, res, params) => {
+    const p = store.getPreset(params.id)
+    const t = store.get('templates', p.templateId) // 样板失效时 404（与出图校验一致）
+    const materials = store.list('materials', {}).items
+    const slots = p.slots.map((slot) => {
+      const ranked = rankMaterials({ baseTags: slot.tags, scene: t.scene, materials })
+      const hit = ranked.find((r) => r.tagHits > 0)
+      return {
+        slotId: slot.id,
+        recommended: hit ? hit.materialId : null,
+        candidates: ranked.map(toCandidate)
+      }
+    })
+    json(res, 200, { slots })
+  })
+
   // 由后续任务在 createServer 内继续注册路由：
-  //   Task 7：/api/renders/auto-recommend、/api/presets/:id/auto-fill
   //   Task 10：/api/renders（含 SSE / stop / rerun / chosen）
   function queueStats() {
     return { running: 0, pending: 0 }
