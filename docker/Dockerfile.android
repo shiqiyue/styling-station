@@ -1,0 +1,95 @@
+# ============================================================
+#  搭配台（styling-station）③ 安卓 APK 构建镜像（一次性任务）
+#  Flutter + JDK17 + Android SDK 全部走国内镜像，无需 Google 直连。
+#  用法（产物输出到 ./dist/搭配台.apk）：
+#    docker compose --env-file app/.env --profile android run --build --rm android-builder
+#  SERVER_URL 为服务器内网地址（如 http://10.0.0.5:4584），编译期注入 APK，
+#  与 build-android.bat 等价（改地址后需重新构建；两者共用 app/.env）。
+#  说明：镜像较大（约 5GB，含完整工具链与依赖缓存）；首次构建需下载
+#  Flutter SDK 约 1.5GB + Android SDK 约 140MB + Gradle/Maven 依赖。
+# ============================================================
+
+FROM debian:bookworm-slim
+
+ARG FLUTTER_VERSION=3.47.5
+# 服务器内网地址：必须提供（缺失时构建立即失败，避免产出连不上的 APK）
+ARG SERVER_URL=""
+# Android SDK 文件镜像：腾讯云完整镜像了官方 repository2-3.xml 及其文件集
+# （官方源 dl.google.com 在国内不稳定；可直接访问 Google 的网络也可改回
+#  https://dl.google.com/android/repository）
+ARG SDK_MIRROR=https://mirrors.cloud.tencent.com/AndroidSDK
+
+ENV PUB_HOSTED_URL=https://pub.flutter-io.cn \
+    FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn \
+    ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    PATH=/opt/flutter/bin:$PATH
+
+# 换阿里云 apt 源（国内构建提速；文件不存在时跳过，不中断构建）
+RUN sed -i 's|//deb.debian.org|//mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources || true
+# 基础工具 + JDK17（bookworm 自带的 openjdk-17）
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      curl xz-utils git unzip zip ca-certificates openjdk-17-jdk-headless \
+ && rm -rf /var/lib/apt/lists/*
+
+# 下载并解压 Flutter SDK（与本机 build-android.bat 同版本；该层缓存后重复构建不再下载）
+RUN curl -fSL --retry 3 -o /tmp/flutter.tar.xz \
+      "$FLUTTER_STORAGE_BASE_URL/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+ && tar -xJf /tmp/flutter.tar.xz -C /opt \
+ && rm /tmp/flutter.tar.xz \
+ && flutter --version
+
+# Android SDK：按官方仓库清单的固定文件直装（不走 sdkmanager，绕开 Google 网络）：
+#   platforms;android-36   编译目标（Flutter 3.47 模板 compileSdk=36）
+#   build-tools;36.0.0     AGP 9.1 默认版本（与本机实测一致）
+#   platform-tools         adb 等（非构建必需，完整起见）
+# 包内顶层目录名已核实：platform → android-36/；build-tools → android-16/
+# （历史命名，须改成版本号目录）；platform-tools → platform-tools/
+RUN set -eux; \
+    mkdir -p "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools" "$ANDROID_HOME/licenses"; \
+    curl -fSL --retry 3 -o /tmp/platform.zip "$SDK_MIRROR/platform-36_r02.zip"; \
+    unzip -q /tmp/platform.zip -d "$ANDROID_HOME/platforms"; \
+    curl -fSL --retry 3 -o /tmp/build-tools.zip "$SDK_MIRROR/build-tools_r36_linux.zip"; \
+    unzip -q /tmp/build-tools.zip -d "$ANDROID_HOME/build-tools"; \
+    mv "$ANDROID_HOME/build-tools/android-16" "$ANDROID_HOME/build-tools/36.0.0"; \
+    curl -fSL --retry 3 -o /tmp/platform-tools.zip "$SDK_MIRROR/platform-tools_r37.0.1-linux.zip"; \
+    unzip -q /tmp/platform-tools.zip -d "$ANDROID_HOME"; \
+    rm -f /tmp/platform.zip /tmp/build-tools.zip /tmp/platform-tools.zip; \
+    printf '%s\n' '24333f8a63b6825ea9c5514f83c2829b004d1fee' > "$ANDROID_HOME/licenses/android-sdk-license"; \
+    printf '%s\n' '84831b9409646a918e30573bab4c9c91346d8abd' > "$ANDROID_HOME/licenses/android-sdk-preview-license"; \
+    test -f "$ANDROID_HOME/platforms/android-36/android.jar"; \
+    test -x "$ANDROID_HOME/build-tools/36.0.0/aapt2"; \
+    test -x "$ANDROID_HOME/platform-tools/adb"
+
+# 让 Flutter 显式使用镜像内工具链（JAVA_HOME/ANDROID_HOME 环境变量已设，这里再写入配置兜底）
+RUN flutter config --android-sdk "$ANDROID_HOME" --jdk-dir "$JAVA_HOME"
+
+WORKDIR /src
+# 先只拷依赖清单：pubspec 没变时 pub 依赖层直接复用缓存
+COPY app/pubspec.yaml app/pubspec.lock ./
+RUN flutter pub get
+
+# 预热 Gradle 发行包（wrapper 指向腾讯镜像）：
+# 单独成层的目的——以后改业务代码重建时不重复下载 Gradle 发行包
+COPY app/android/ android/
+RUN cd android && chmod +x gradlew && ./gradlew --version >/dev/null
+
+# 源码（构建缓存与本机私有文件已由 .dockerignore 排除）
+COPY app/ ./
+
+# 编译 APK：SERVER_URL 编译期注入（与 app/.env 的 --dart-define-from-file 等价）。
+# 地址缺失时立刻失败并给出用法，避免产出连不上服务器的 APK。
+RUN test -n "$SERVER_URL" || { \
+      echo >&2 '缺少服务器地址：请用 --env-file app/.env 复用现有配置，例如'; \
+      echo >&2 '  docker compose --env-file app/.env --profile android run --build --rm android-builder'; \
+      echo >&2 '或先设置环境变量 SERVER_URL=http://<内网IP>:4584 再执行同一命令。'; \
+      exit 1; \
+    }
+RUN flutter build apk --release --dart-define=SERVER_URL="$SERVER_URL" \
+ && mkdir -p /src/dist \
+ && cp build/app/outputs/flutter-apk/app-release.apk "/src/dist/搭配台.apk"
+
+# 容器启动即把 APK 拷到挂载的 /out（compose 挂 ./dist:/out）
+CMD ["sh", "-c", "cp /src/dist/搭配台.apk /out/ && ls -l /out/"]

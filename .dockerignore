@@ -2,7 +2,6 @@
 .git
 .gitignore
 .gitattributes
-Dockerfile
 docker-compose.yaml
 .dockerignore
 *.bat
@@ -19,10 +18,17 @@ server/data
 server/test
 server/_smoke.mjs
 
-# Flutter：只保留构建所需（lib / web / pubspec / analysis_options 等）
+# Flutter：保留构建所需（lib / web / assets / android 源码 / pubspec 等）；
+# docker/ 目录要保留 —— Dockerfile.web 会从中拷贝 nginx.conf；
+# 排除构建缓存与本机私有文件
 app/.env
 app/.dart_tool
 app/build
-app/android
 app/test
 app/.idea
+app/android/build
+app/android/app/build
+app/android/.gradle
+app/android/.idea
+app/android/local.properties
+app/android/key.properties

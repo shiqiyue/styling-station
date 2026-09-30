@@ -1,20 +1,61 @@
-# 搭配台服务端 —— Docker 部署（可选，替代 start.bat）
+# 搭配台 —— Docker 部署（可选，替代 start.bat）
 #
-#   docker compose up -d --build    构建并启动（首次含 Flutter Web 编译，约 10~20 分钟）
-#   docker compose logs -f          查看日志
-#   docker compose down             停止并移除容器
+#   docker compose up -d --build     构建并启动「服务端 + Web」（首次含 Flutter 编译，约 10~20 分钟）
+#   docker compose logs -f           查看日志
+#   docker compose down              停止并移除
+#
+#   只重建某一端（服务端镜像不含 Flutter，几秒钟完成）：
+#     docker compose build server
+#     docker compose build web
+#
+#   构建安卓 APK（一次性任务，产物输出到 ./dist/搭配台.apk）：
+#     docker compose --env-file app/.env --profile android run --build --rm android-builder
+#   （SERVER_URL 也可先用 set SERVER_URL=http://<内网IP>:4584 再执行同一命令）
 #
 # 与 start.bat 二选一：两者都占用 4584 端口，不能同时运行；
 # 数据 / 配置 / 密钥共用绑定的 ./server/data，两种方式可随时切换。
+#
+# 端口：对外端口 = web 的映射（默认 4584:80）；服务端容器内部固定 4584，
+# 因此 Docker 模式下请保持 server/data/settings.json 的 port 为 4584。
 services:
-  styling-station:
-    build: .
-    image: styling-station:latest
-    container_name: styling-station
-    ports:
-      # 改端口：同步改 server/data/settings.json 的 port，再 up -d 重建
-      - "4584:4584"
+  # ① 服务端：零依赖 Node（JSON API + SSE）。不发布端口，只经 web 的 nginx 转发访问
+  server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    image: styling-station-server:latest
+    container_name: styling-station-server
     volumes:
       # 数据 / 配置 / 出图产物与原生模式共用同一份（settings.json 含 ark 密钥，勿提交）
       - ./server/data:/app/server/data
     restart: unless-stopped
+
+  # ② Web 前端：nginx 托管 Flutter 产物 + 反代 /api、/files、SSE（对外入口）
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    image: styling-station-web:latest
+    container_name: styling-station-web
+    ports:
+      # 对外端口：要改就改这一行（容器内固定 80）
+      - "4584:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  # ③ 安卓 APK 构建：一次性任务（--profile android 才启用，不参与 up）
+  android-builder:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.android
+      args:
+        # 服务器内网地址（如 http://10.0.0.5:4584），编译期写入 APK
+        SERVER_URL: "${SERVER_URL:-}"
+    image: styling-station-android-builder:latest
+    profiles: ["android"]
+    volumes:
+      # APK 输出目录
+      - ./dist:/out
+    command: ["sh", "-c", "cp /src/dist/搭配台.apk /out/ && ls -l /out/"]
+    restart: "no"

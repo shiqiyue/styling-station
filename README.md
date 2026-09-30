@@ -34,21 +34,45 @@ netsh advfirewall firewall add rule name="styling-station" dir=in action=allow p
 
 ## Docker 部署（可选）
 
-不想在机器上装 Node 环境时，可以用 Docker 跑服务端（镜像内含 Node 与自动编译好的 Flutter Web 界面）。与 `start.bat` 方式**二选一**（两者都占用 4584 端口，不能同时运行）；数据、配置、备份完全共用 `server\data`，可随时切换。
+不想在机器上装 Node，或想固定「服务端 / 网页 / 安卓」的构建方式时，可以用 Docker。三个镜像各司其职（文件都在 `docker/` 目录）：
 
-用法：装好 Docker（Windows 用 Docker Desktop，需启用 WSL2）后，在仓库根目录执行：
+| 镜像 | 作用 | 何时需要重建 |
+| --- | --- | --- |
+| `docker/Dockerfile.server` | 服务端：零依赖 Node（JSON API + SSE） | 只改服务端代码时（几秒完成） |
+| `docker/Dockerfile.web` | 网页：编译 Flutter Web + nginx 托管（对外入口，自动反代接口/图片/SSE） | 改前端界面时（首次含 Flutter 下载，约 10~20 分钟） |
+| `docker/Dockerfile.android` | 安卓 APK 构建（一次性任务，不常驻） | 需要出新版 APK 时 |
+
+与 `start.bat` 方式**二选一**（两者都占用 4584 端口，不能同时运行）；数据、配置、备份完全共用 `server\data`，可随时切换。
+
+### 启动（服务端 + 网页）
+
+装好 Docker（Windows 用 Docker Desktop，需启用 WSL2）后，在仓库根目录执行：
 
 ```bash
 docker compose up -d --build
 ```
 
-首次构建会从国内镜像下载 Flutter SDK（约 1.5GB）并编译 Web 前端，约 10~20 分钟；之后改代码重建只做增量编译。访问方式与 `start.bat` 相同（本机 `http://127.0.0.1:4584`，同事用内网 IP），防火墙照上文放行一次即可。
+访问方式与 `start.bat` 相同（本机 `http://127.0.0.1:4584`，同事用内网 IP）：对外是 web 容器的 nginx，`/api`、图片（`/files`）、出图进度（SSE）都会自动转发给服务端容器。防火墙照上文放行一次即可。
+
+- 只重建某一端：`docker compose build server`（服务端镜像不含 Flutter，几秒完成）或 `docker compose build web`，随后 `docker compose up -d`。
+- **对外端口**：改 `docker-compose.yaml` 里 web 的端口映射（默认 `4584:80`）；服务端容器内部固定 4584，因此 Docker 模式下请保持 `server\data\settings.json` 的 `port` 为 4584。
+- 常用命令：`docker compose logs -f` 看日志；`docker compose down` 停止；更新代码后 `git pull` → `docker compose up -d --build`。
+- 从旧版单容器方案升级：多出来的旧容器/镜像可清理 `docker rm -f styling-station`、`docker rmi styling-station:latest`（没提示可忽略）。
+
+### 构建安卓 APK（等价于 build-android.bat）
+
+```bash
+docker compose --env-file app/.env --profile android run --build --rm android-builder
+```
+
+产物输出到 `dist\搭配台.apk`（即「双端使用」里分发给手机的那个文件）。要点：
+
+- 服务器内网地址取自 `app\.env` 的 `SERVER_URL`（与 build-android.bat 共用同一份配置）；也可以先 `set SERVER_URL=http://<内网IP>:4584` 再执行同一命令。未提供地址会立即构建失败，避免产出连不上服务器的 APK。
+- 首次构建较重：Flutter SDK 约 1.5GB + Android SDK/Gradle 依赖约 1GB（镜像总共约 5GB）；之后改代码重建主要是重新编译（工具链已缓存），几分钟内完成；换服务器 IP 只需重跑同一条命令。
 
 注意事项：
 
 - **容器内出图必须用方舟通道**：qodercli 是本机 Windows 程序，容器里跑不了 → 确认 `server\data\settings.json` 里 `renderChannel` 为 `ark` 且已填 `arkApiKey` / `arkModel`（本机已配好，共用同一份配置即可直接用）。
-- **换端口**：改 `settings.json` 的 `port`，同步改 `docker-compose.yaml` 的端口映射，再 `docker compose up -d` 重建。
-- **常用命令**：`docker compose logs -f` 看日志；`docker compose down` 停止；更新代码后 `git pull` → `docker compose up -d --build` 重新部署。
 - 拉基础镜像慢时，给 Docker 配置国内镜像加速后重新构建；备份照旧直接打包 `server\data`（`backup.bat` 仍可用）。
 
 ## 界面
@@ -80,6 +104,8 @@ docker compose up -d --build
 ## 客户端构建（只有改前端/换服务器地址时才需要）
 
 前提（仅构建时）：Flutter SDK、JDK 17、Android SDK。本机路径已写死在两个脚本顶部（换机器需修改 `PATH` / `JAVA_HOME` / `ANDROID_HOME`），国内镜像均已配置（pub / Gradle / Maven）。首次构建需联网下载依赖（约 3.5–4.5GB，之后增量构建很快）。
+
+> 不想装这套工具链也可以走 Docker：Web 部署见上文「Docker 部署」，安卓出包见「构建安卓 APK（等价于 build-android.bat）」，产物与脚本方式完全一致。
 
 - **Web**：双击 `build-web.bat` → 产物 `app\build\web`。重启服务后浏览器即用新界面。
   - **回滚旧界面**：把 `app\build\web` 改名或删除后重启服务，会自动回退到旧版页面（旧 `web/` 目录暂时保留）。
@@ -139,4 +165,5 @@ docker compose up -d --build
 - **同事打不开**：确认防火墙规则已放行，且两台机器在同一内网；服务需保持这个窗口开着。
 - **网页还是旧界面**：确认 `app\build\web` 存在且服务已重启（服务启动时探测一次）。
 - **安卓 App 连不上/提示未配置服务器地址**：检查 `app\.env` 的 `SERVER_URL` 是否为这台机器的当前内网地址，改完需重新运行 `build-android.bat` 打包。
-- **Docker 方式起不来/打不开**：先看 `docker compose logs`；常见原因是 4584 端口被 start.bat 模式占用（两种方式只能跑一个），或首次构建尚未完成。
+- **Docker 起不来 / 网页 502**：先看 `docker compose logs`。常见原因：4584 端口被 start.bat 模式占用（两种方式只能跑一个）；`settings.json` 的 `port` 被改成过非 4584（Docker 模式要求 4584）；服务端容器未启动或首次构建尚未完成。
+- **Docker 出安卓包报「缺少服务器地址」**：按提示带 `--env-file app/.env`，或先 `set SERVER_URL=http://<内网IP>:4584` 再重跑构建命令。

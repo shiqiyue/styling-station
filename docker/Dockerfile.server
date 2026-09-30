@@ -1,0 +1,29 @@
+# ============================================================
+#  搭配台（styling-station）① 服务端镜像
+#  只含零依赖 Node 服务（JSON API + SSE；web/ 为旧界面兜底），
+#  不含 Flutter，改服务端代码后重建只需几秒。
+#  对外的 Web 界面由 docker/Dockerfile.web（nginx）独立部署，
+#  nginx 会把 /api、/files、SSE 反向代理到本容器的 4584。
+#  用法见 README「Docker 部署（可选）」；compose 绑定 ./server/data
+#  持久化数据与配置（arkApiKey 在 settings.json 里，绝不进镜像）。
+# ============================================================
+
+FROM node:22-alpine
+
+# 时区：记录时间戳按本地时区格式化（与本机 start.bat 模式一致，否则差 8 小时）
+RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories \
+ && apk add --no-cache tzdata
+ENV TZ=Asia/Shanghai
+
+WORKDIR /app
+# 容器内目录结构与仓库一致；web/ 保留作旧界面兜底（直接访问本容器时可用）
+COPY server/ server/
+COPY web/ web/
+
+EXPOSE 4584
+
+# 健康检查：读 settings.json 的 port（缺省 4584）再探 /api/health
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["node","-e","let p=4584;try{p=JSON.parse(require('fs').readFileSync('/app/server/data/settings.json','utf8')).port||p}catch{};fetch('http://127.0.0.1:'+p+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+
+CMD ["node","server/server.mjs"]

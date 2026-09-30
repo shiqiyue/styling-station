@@ -1,0 +1,52 @@
+# ============================================================
+#  搭配台（styling-station）② Web 前端镜像
+#  阶段 1：下载官方 Flutter SDK（国内镜像）编译 Web 产物
+#  阶段 2：nginx 托管产物，并把 /api、/files、SSE 反代到 server 容器
+#  构建参数与本机 build-web.bat 一致：CanvasKit 本地化，不依赖外网 CDN。
+#  用法见 README「Docker 部署（可选）」。
+# ============================================================
+
+# ---------- 阶段 1：编译 Flutter Web ----------
+FROM debian:bookworm-slim AS webbuild
+
+ARG FLUTTER_VERSION=3.47.5
+ENV PUB_HOSTED_URL=https://pub.flutter-io.cn \
+    FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn \
+    PATH=/opt/flutter/bin:$PATH
+
+# 换阿里云 apt 源（国内构建提速；文件不存在时跳过，不中断构建）
+RUN sed -i 's|//deb.debian.org|//mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources || true
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl xz-utils git unzip zip ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# 下载并解压 Flutter SDK（约 1.5GB；该层缓存后重复构建不再下载）
+RUN curl -fSL --retry 3 -o /tmp/flutter.tar.xz \
+      "$FLUTTER_STORAGE_BASE_URL/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+ && tar -xJf /tmp/flutter.tar.xz -C /opt \
+ && rm /tmp/flutter.tar.xz \
+ && flutter --version
+
+WORKDIR /src
+# 先只拷依赖清单：pubspec 没变时依赖层直接复用缓存
+COPY app/pubspec.yaml app/pubspec.lock ./
+RUN flutter pub get
+
+# 源码（app/ 下构建缓存与 .env 已由 .dockerignore 排除；
+# android/ 源码会一并拷入，编译 Web 时不用、无害）
+COPY app/ ./
+
+# 与 build-web.bat 同参数：CanvasKit 本地化，不依赖外网 CDN
+RUN flutter build web --release --no-web-resources-cdn
+
+# ---------- 阶段 2：nginx 托管（对外入口） ----------
+FROM nginx:1.29-alpine
+
+COPY --from=webbuild /src/build/web/ /usr/share/nginx/html/
+# 反代配置：/api、/files、SSE → server 容器（细节见文件内注释）
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1/healthz || exit 1
