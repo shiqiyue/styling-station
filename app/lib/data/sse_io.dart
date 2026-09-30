@@ -19,9 +19,9 @@ typedef RenderEvent = ({String event, Object? data});
 
 const _reconnectDelay = Duration(seconds: 2);
 
-/// 打开某条出图记录的 SSE 事件流（自动重连；订阅取消即断开）。
-Stream<RenderEvent> openRenderEventStream(String renderId) async* {
-  final uri = apiUri('/api/renders/$renderId/stream');
+/// 打开任意 SSE 事件流（自动重连；订阅取消即断开）。
+Stream<RenderEvent> openEventStream(String path) async* {
+  final uri = apiUri(path);
   while (true) {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     var retry = true;
@@ -73,3 +73,7 @@ Stream<RenderEvent> openRenderEventStream(String renderId) async* {
     await Future<void>.delayed(_reconnectDelay);
   }
 }
+
+/// 出图记录事件流（兼容入口，语义不变）。
+Stream<RenderEvent> openRenderEventStream(String renderId) =>
+    openEventStream('/api/renders/$renderId/stream');

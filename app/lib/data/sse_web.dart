@@ -18,12 +18,12 @@ typedef RenderEvent = ({String event, Object? data});
 
 const kRenderEventNames = ['snapshot', 'delta', 'status', 'result', 'error', 'done'];
 
-/// 打开某条出图记录的 SSE 事件流（取消订阅即断开）。
-Stream<RenderEvent> openRenderEventStream(String renderId) {
+/// 打开任意 SSE 事件流（取消订阅即断开）。
+Stream<RenderEvent> openEventStream(String path) {
   final ctrl = StreamController<RenderEvent>();
   web.EventSource? es;
   try {
-    es = web.EventSource(apiUri('/api/renders/$renderId/stream').toString());
+    es = web.EventSource(apiUri(path).toString());
   } catch (e) {
     ctrl.addError(StateError('事件流不可用：$e'));
     ctrl.close();
@@ -61,3 +61,7 @@ Stream<RenderEvent> openRenderEventStream(String renderId) {
   };
   return ctrl.stream;
 }
+
+/// 出图记录事件流（兼容入口，语义不变）。
+Stream<RenderEvent> openRenderEventStream(String renderId) =>
+    openEventStream('/api/renders/$renderId/stream');

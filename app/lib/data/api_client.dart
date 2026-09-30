@@ -232,6 +232,31 @@ class Api {
   Future<AutoFillResult> autoFill(String presetId) async =>
       AutoFillResult.fromJson(await _post('/api/presets/$presetId/auto-fill'));
 
+  // ---------- 素材图优化 ----------
+
+  /// 发起素材图优化 → taskId。
+  Future<String> startMaterialOptimize(String materialId, int index) async {
+    final json = await _post('/api/materials/$materialId/optimize', {'index': index});
+    final m = json is Map<String, Object?> ? json : const <String, Object?>{};
+    final id = m['taskId'];
+    if (id is! String || id.isEmpty) {
+      throw const ApiException(status: 0, code: 'BAD_RESPONSE', message: '发起优化返回异常');
+    }
+    return id;
+  }
+
+  /// 采用优化结果 → 更新后的素材。
+  Future<LibraryDoc> adoptOptimize(String materialId, String taskId) async =>
+      _must(
+        LibraryDoc.fromJson(await _post('/api/materials/$materialId/optimize/$taskId/adopt')),
+        '采用优化返回异常'
+      );
+
+  /// 放弃优化（幂等；进行中会先中止）。
+  Future<void> discardOptimize(String materialId, String taskId) async {
+    await _post('/api/materials/$materialId/optimize/$taskId/discard');
+  }
+
   // ---------- 出图 ----------
 
   /// 组装 free 模式出图请求体。

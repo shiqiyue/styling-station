@@ -194,4 +194,75 @@ void main() {
       expect(captured.queryParameters['offset'], '20');
     });
   });
+
+  group('素材图优化', () {
+    test('startMaterialOptimize：POST 路径与 index 体，返回 taskId', () async {
+      late http.Request captured;
+      final api = Api(
+        client: MockClient((req) async {
+          captured = req;
+          return _json200({'taskId': 'o-20260930120000-abcd'});
+        })
+      );
+      final taskId = await api.startMaterialOptimize('m-1', 2);
+      expect(taskId, 'o-20260930120000-abcd');
+      expect(captured.method, 'POST');
+      expect(captured.url.path, '/api/materials/m-1/optimize');
+      expect(jsonDecode(captured.body), {'index': 2});
+    });
+
+    test('startMaterialOptimize：缺 taskId → BAD_RESPONSE', () async {
+      final api = Api(client: MockClient((req) async => _json200({'nope': true})));
+      await expectLater(
+        api.startMaterialOptimize('m-1', 0),
+        throwsA(isA<ApiException>().having((e) => e.code, 'code', 'BAD_RESPONSE'))
+      );
+    });
+
+    test('adoptOptimize：解析更新后的素材（新主图在末尾）', () async {
+      final api = Api(
+        client: MockClient((req) async {
+          expect(req.url.path, '/api/materials/m-1/optimize/o-1/adopt');
+          return _json200({
+            'id': 'm-1',
+            'name': 'x',
+            'scene': '瓷砖',
+            'images': [
+              {'file': 'files/materials/m-1/1.png', 'primary': false},
+              {'file': 'files/materials/m-1/2.png', 'primary': true}
+            ]
+          });
+        })
+      );
+      final doc = await api.adoptOptimize('m-1', 'o-1');
+      expect(doc.images.length, 2);
+      expect(doc.images.last.primary, isTrue);
+    });
+
+    test('discardOptimize：POST 且不关心响应体', () async {
+      final api = Api(
+        client: MockClient((req) async {
+          expect(req.url.path, '/api/materials/m-1/optimize/o-1/discard');
+          return _json200({'ok': true});
+        })
+      );
+      await api.discardOptimize('m-1', 'o-1');
+    });
+
+    test('优化端点错误映射：OPT_NOT_FOUND 透传 message', () async {
+      final api = Api(
+        client: MockClient((req) async => http.Response(
+              jsonEncode({
+                'error': {'code': 'OPT_NOT_FOUND', 'message': '优化任务不存在（服务可能已重启），请重新发起'}
+              }),
+              404,
+              headers: {'content-type': 'application/json'}
+            ))
+      );
+      await expectLater(
+        api.adoptOptimize('m-1', 'o-x'),
+        throwsA(isA<ApiException>().having((e) => e.message, 'message', contains('重新发起')))
+      );
+    });
+  });
 }
