@@ -2,15 +2,13 @@
 /// 候选卡片（查看大图 / 选用 / Web 下载）。
 library;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
-import '../config.dart';
 import '../data/api_client.dart';
 import '../data/models.dart';
-import '../download.dart';
 import '../state/render_session.dart';
 import '../theme.dart';
+import '../widgets/result_card.dart';
 import '../widgets/toast.dart';
 
 /// 出图状态文案（对齐旧版状态机文案，失败显示“出图失败”）。
@@ -185,7 +183,7 @@ class _RenderPanelState extends State<RenderPanel> {
     for (var i = 0; i < total; i++) {
       final r = s.results[i];
       if (r == null) continue;
-      items.add(_resultCard(context, r, i + 1));
+      items.add(ResultCard(result: r, index: i + 1, onChoose: _choose, busy: _busy));
     }
     if (items.isEmpty) return const [];
     return [
@@ -205,63 +203,6 @@ class _RenderPanelState extends State<RenderPanel> {
         )
       )
     ];
-  }
-
-  Widget _resultCard(BuildContext context, RenderResult res, int idx) {
-    final url = fileUri(res.file).toString();
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(kRadius - 2),
-        border: Border.all(color: res.chosen ? AppColors.accent : AppColors.line, width: res.chosen ? 2 : 1)
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: () => _viewImage(url, '候选 $idx'),
-            child: Container(
-              color: AppColors.bg,
-              child: Image.network(url, fit: BoxFit.contain, errorBuilder: (_, _, _) =>
-                  const Center(child: Text('图片加载失败', style: TextStyle(color: AppColors.muted, fontSize: 12))))
-            )
-          )
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-          child: Row(children: [
-            Text('候选 $idx', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-            if (res.chosen)
-              Container(
-                margin: const EdgeInsets.only(left: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(color: AppColors.accentSoft, borderRadius: BorderRadius.circular(999)),
-                child: const Text('已选用', style: TextStyle(fontSize: 11, color: AppColors.accent))
-              ),
-            const Spacer(),
-            if (kIsWeb) ...[
-              TextButton(
-                onPressed: () => downloadFile(url, 'v$idx.png'),
-                style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                child: const Text('下载', style: TextStyle(fontSize: 12))
-              ),
-              const SizedBox(width: 4)
-            ],
-            res.chosen
-                ? OutlinedButton(
-                    onPressed: () => _choose(idx, false),
-                    style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
-                    child: const Text('取消选用', style: TextStyle(fontSize: 12))
-                  )
-                : FilledButton(
-                    onPressed: () => _choose(idx, true),
-                    style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-                    child: const Text('选用', style: TextStyle(fontSize: 12))
-                  )
-          ])
-        )
-      ])
-    );
   }
 
   // ---------- 操作 ----------
@@ -291,33 +232,4 @@ class _RenderPanelState extends State<RenderPanel> {
         await _s.choose(idx, chosen);
         if (mounted) showToast(context, chosen ? '已选用候选 $idx' : '已取消选用');
       });
-
-  void _viewImage(String url, String title) {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.all(20),
-        backgroundColor: Colors.black,
-        child: Stack(children: [
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 5,
-              child: Center(child: Image.network(url, fit: BoxFit.contain))
-            )
-          ),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: IconButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              icon: const Icon(Icons.close, color: Colors.white),
-              tooltip: '关闭'
-            )
-          )
-        ])
-      )
-    );
-  }
 }
